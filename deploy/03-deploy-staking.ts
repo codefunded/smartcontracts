@@ -14,7 +14,7 @@ const deployStaking: DeployFunction = async function ({
   const chainId = await getChainId();
   const networkConfig = getNetworkConfig(chainId);
 
-  const dividendToken = await get('DividendToken');
+  const multiERC20WeightedLockerDeployment = await get('MultiERC20WeightedLocker');
   const mintableToken = await get('MintableToken');
 
   const usdcAddress =
@@ -22,7 +22,7 @@ const deployStaking: DeployFunction = async function ({
 
   const stakingDeployment = await deploy('Staking', {
     from: deployer,
-    args: [dividendToken.address, usdcAddress],
+    args: [multiERC20WeightedLockerDeployment.address, usdcAddress],
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
@@ -32,7 +32,11 @@ const deployStaking: DeployFunction = async function ({
 
   const mintStakingDeployment = await deploy('MintStaking', {
     from: deployer,
-    args: [dividendToken.address, mintableToken.address, REWARD_RATE],
+    args: [
+      multiERC20WeightedLockerDeployment.address,
+      mintableToken.address,
+      REWARD_RATE,
+    ],
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
@@ -42,6 +46,19 @@ const deployStaking: DeployFunction = async function ({
 
   const iceToken = await ethers.getContractAt('MintableToken', mintableToken.address);
   await iceToken.grantRole(await iceToken.MINTER_ROLE(), mintStakingDeployment.address);
+
+  const locker = await ethers.getContractAt(
+    'MultiERC20WeightedLocker',
+    multiERC20WeightedLockerDeployment.address,
+  );
+  await locker.addStakingContract(stakingDeployment.address);
+  await locker.addStakingContract(mintStakingDeployment.address);
+
+  const staking = await ethers.getContractAt('Staking', stakingDeployment.address);
+  await staking.grantRole(
+    await staking.LOCKER_ROLE(),
+    multiERC20WeightedLockerDeployment.address,
+  );
 
   log('-----Staking contracts deployed-----');
 };

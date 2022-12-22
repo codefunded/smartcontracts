@@ -4,92 +4,70 @@ import { BigNumber } from 'ethers';
 import { ethers } from 'hardhat';
 import { test } from 'mocha';
 import { getEventFromTxReceipt } from '../utils/testHelpers/extractEventFromTxReceipt';
-import { prepareTestEnv } from '../utils/testHelpers/fixtures/prepareTestEnv';
-import { getPermitSignature } from '../utils/testHelpers/permit';
+import { prepareSimpleTestEnv } from '../utils/testHelpers/fixtures/prepareTestEnv';
 
 describe('Staking contract', async () => {
   const REWARD_AMOUNT_IN_USDC = ethers.utils.parseUnits('100', 6);
   const ONE_DAY_IN_SECONDS = 60 * 60 * 24;
 
   test('should allow to fund staking contract with rewards (usdc)', async () => {
-    const { usdcToken, stakingContract } = await loadFixture(prepareTestEnv);
+    const { usdcToken, stakingContract } = await loadFixture(prepareSimpleTestEnv);
 
     await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
 
-    const setRewardsTx = await stakingContract.setRewardsDuration(ONE_DAY_IN_SECONDS);
-    const setRewardsTxReceipt = await setRewardsTx.wait();
+    const startNewRewardsPeriodTx = await stakingContract.startNewRewardsPeriod(
+      ONE_DAY_IN_SECONDS,
+    );
+    const startNewRewardsPeriodTxReceipt = await startNewRewardsPeriodTx.wait();
 
     expect(
-      getEventFromTxReceipt<{ duration: BigNumber }>(setRewardsTxReceipt).duration,
+      getEventFromTxReceipt<{ duration: BigNumber }>(startNewRewardsPeriodTxReceipt)
+        .duration,
     ).to.be.equal(ONE_DAY_IN_SECONDS);
 
-    const notifyRewardTx = await stakingContract.notifyRewardAmount(
-      REWARD_AMOUNT_IN_USDC,
-    );
-    const notifyRewardTxReceipt = await notifyRewardTx.wait();
-
     expect(
-      getEventFromTxReceipt<{ amount: BigNumber }>(notifyRewardTxReceipt).amount,
+      getEventFromTxReceipt<{ rewardsAmount: BigNumber }>(startNewRewardsPeriodTxReceipt)
+        .rewardsAmount,
     ).to.be.equal(REWARD_AMOUNT_IN_USDC);
   });
 
   test('should allow to stake tokens', async () => {
-    const { stakingContract, micToken } = await loadFixture(prepareTestEnv);
+    const [user1] = await ethers.getSigners();
+    const { stakingContract, micToken } = await loadFixture(prepareSimpleTestEnv);
 
     await micToken.approve(stakingContract.address, ethers.utils.parseEther('1'));
 
-    const tx = await stakingContract.stake(ethers.utils.parseEther('1'));
+    const tx = await stakingContract.stakeFor(
+      user1.address,
+      ethers.utils.parseEther('1'),
+    );
     const txReceipt = await tx.wait();
 
-    expect(
-      getEventFromTxReceipt<{ amount: BigNumber }>(txReceipt, -1).amount,
-    ).to.be.equal(ethers.utils.parseEther('1'));
-  });
-  test('should allow to stake tokens with permit', async () => {
-    const { stakingContract, micTokenPermit } = await loadFixture(prepareTestEnv);
-    const [user] = await ethers.getSigners();
-
-    const { v, r, s } = await getPermitSignature(
-      user,
-      micTokenPermit,
-      stakingContract.address,
-      ethers.utils.parseEther('1'),
-      ethers.constants.MaxUint256,
-    );
-
-    const tx = await stakingContract.stakeWithPermit(
-      ethers.utils.parseEther('1'),
-      ethers.constants.MaxUint256,
-      v,
-      r,
-      s,
-    );
-
-    const txReceipt = await tx.wait();
     expect(
       getEventFromTxReceipt<{ amount: BigNumber }>(txReceipt, -1).amount,
     ).to.be.equal(ethers.utils.parseEther('1'));
   });
 
   test('should allow to collect rewards', async () => {
-    const { stakingContract, micToken, usdcToken } = await loadFixture(prepareTestEnv);
+    const { stakingContract, micToken, usdcToken } = await loadFixture(
+      prepareSimpleTestEnv,
+    );
 
     const [user] = await ethers.getSigners();
 
     await micToken.approve(stakingContract.address, ethers.utils.parseEther('1'));
-    await stakingContract.stake(ethers.utils.parseEther('1'));
+    await stakingContract.stakeFor(user.address, ethers.utils.parseEther('1'));
 
     // start staking period
     await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
-    await stakingContract.setRewardsDuration(ONE_DAY_IN_SECONDS);
-    await stakingContract.notifyRewardAmount(REWARD_AMOUNT_IN_USDC);
+    await stakingContract.startNewRewardsPeriod(ONE_DAY_IN_SECONDS);
 
     await time.increase(ONE_DAY_IN_SECONDS);
 
     const reward = await stakingContract.earnedReward(user.address);
     const usdcBalanceBefore = await usdcToken.balanceOf(user.address);
 
-    const tx = await stakingContract.collectReward();
+    const tx = await stakingContract.collectRewardsFor(user.address);
     const txReceipt = await tx.wait();
     expect(
       getEventFromTxReceipt<{ amount: BigNumber }>(txReceipt, -1).amount,
@@ -100,49 +78,44 @@ describe('Staking contract', async () => {
   });
 
   test('should allow to withdraw staked tokens', async () => {
-    const { stakingContract, micToken } = await loadFixture(prepareTestEnv);
+    const { stakingContract, micToken } = await loadFixture(prepareSimpleTestEnv);
 
     const [user] = await ethers.getSigners();
 
-    const micBalanceBefore = await micToken.balanceOf(user.address);
-
     await micToken.approve(stakingContract.address, ethers.utils.parseEther('1'));
-    await stakingContract.stake(ethers.utils.parseEther('1'));
+    await stakingContract.stakeFor(user.address, ethers.utils.parseEther('1'));
 
-    const micBalanceWhenStaking = await micToken.balanceOf(user.address);
+    const micBalanceWhenStaking = await stakingContract.balanceOf(user.address);
 
-    expect(micBalanceWhenStaking).to.be.equal(
-      micBalanceBefore.sub(ethers.utils.parseEther('1')),
-    );
+    expect(micBalanceWhenStaking).to.be.equal(ethers.utils.parseEther('1'));
 
-    await stakingContract.withdraw(ethers.utils.parseEther('1'));
+    await stakingContract.withdrawFor(user.address, ethers.utils.parseEther('1'));
 
-    const micBalanceAfter = await micToken.balanceOf(user.address);
+    const micBalanceAfter = await stakingContract.balanceOf(user.address);
 
-    expect(micBalanceBefore).to.be.equal(micBalanceAfter);
+    expect(micBalanceAfter).to.be.equal(0);
   });
 
   test('should correctly calculate reward amount', async () => {
-    const { stakingContract, micToken, usdcToken } = await loadFixture(prepareTestEnv);
+    const { stakingContract, micToken, usdcToken } = await loadFixture(
+      prepareSimpleTestEnv,
+    );
 
-    const [user, user2] = await ethers.getSigners();
+    const [owner, user2] = await ethers.getSigners();
 
     await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
 
     await micToken.approve(stakingContract.address, ethers.utils.parseEther('1'));
-    await stakingContract.stake(ethers.utils.parseEther('1'));
+    await stakingContract.stakeFor(owner.address, ethers.utils.parseEther('1'));
 
-    await micToken
-      .connect(user2)
-      .approve(stakingContract.address, ethers.utils.parseEther('1'));
-    await stakingContract.connect(user2).stake(ethers.utils.parseEther('1'));
+    await micToken.approve(stakingContract.address, ethers.utils.parseEther('1'));
+    await stakingContract.stakeFor(user2.address, ethers.utils.parseEther('1'));
 
-    await stakingContract.setRewardsDuration(ONE_DAY_IN_SECONDS);
-    await stakingContract.notifyRewardAmount(REWARD_AMOUNT_IN_USDC);
+    await stakingContract.startNewRewardsPeriod(ONE_DAY_IN_SECONDS);
 
     await time.increase(ONE_DAY_IN_SECONDS / 2);
 
-    const user1Profit = await stakingContract.earnedReward(user.address);
+    const user1Profit = await stakingContract.earnedReward(owner.address);
     const user2Profit = await stakingContract.earnedReward(user2.address);
 
     expect(user1Profit).to.be.equal(user2Profit);
@@ -152,14 +125,14 @@ describe('Staking contract', async () => {
       REWARD_AMOUNT_IN_USDC.toNumber() * 0.01,
     );
 
-    await stakingContract.connect(user2).withdraw(ethers.utils.parseEther('1'));
+    await stakingContract.withdrawFor(user2.address, ethers.utils.parseEther('1'));
 
     await time.increase(ONE_DAY_IN_SECONDS / 2);
     const currentBlockTimestamp = await time.latest();
     const stakingPeriodFinish = await stakingContract.finishAt();
     expect(stakingPeriodFinish).to.be.lessThan(BigNumber.from(currentBlockTimestamp));
 
-    const user2ProfitAfterPeriod = await stakingContract.earnedReward(user.address);
+    const user2ProfitAfterPeriod = await stakingContract.earnedReward(owner.address);
     // divide by 2 because we have 2 users and then again divide by 2 because only half of the staking period has passed
     expect(user2ProfitAfterPeriod.toNumber()).to.be.approximately(
       REWARD_AMOUNT_IN_USDC.mul(3).div(4).toNumber(), // 3/4 of the reward amount
@@ -168,9 +141,11 @@ describe('Staking contract', async () => {
   });
 
   test('should correctly caluclate rewards with multiple stakers and withdrawals during the rewards period', async () => {
-    const { stakingContract, micToken, usdcToken } = await loadFixture(prepareTestEnv);
+    const { stakingContract, micToken, usdcToken } = await loadFixture(
+      prepareSimpleTestEnv,
+    );
 
-    const [owner, user10] = await ethers.getSigners();
+    const [, user10] = await ethers.getSigners();
 
     const [signer1, signer2, signer3] = await Promise.all([
       ethers.getImpersonatedSigner(ethers.constants.AddressZero.replace('x0', 'x1')),
@@ -178,45 +153,22 @@ describe('Staking contract', async () => {
       ethers.getImpersonatedSigner(ethers.constants.AddressZero.replace('x0', 'x3')),
     ]);
 
-    await Promise.all([
-      micToken.transfer(signer1.address, ethers.utils.parseEther('1')),
-      owner.sendTransaction({ to: signer1.address, value: ethers.utils.parseEther('1') }),
-      micToken.transfer(signer2.address, ethers.utils.parseEther('2')),
-      owner.sendTransaction({ to: signer2.address, value: ethers.utils.parseEther('1') }),
-      micToken.transfer(signer3.address, ethers.utils.parseEther('3')),
-      owner.sendTransaction({ to: signer3.address, value: ethers.utils.parseEther('1') }),
-    ]);
+    await micToken.approve(stakingContract.address, ethers.utils.parseEther('999'));
 
     await Promise.all([
-      micToken
-        .connect(signer1)
-        .approve(stakingContract.address, ethers.utils.parseEther('1')),
-      micToken
-        .connect(signer2)
-        .approve(stakingContract.address, ethers.utils.parseEther('2')),
-      micToken
-        .connect(signer3)
-        .approve(stakingContract.address, ethers.utils.parseEther('3')),
+      stakingContract.stakeFor(signer1.address, ethers.utils.parseEther('1')),
+      stakingContract.stakeFor(signer2.address, ethers.utils.parseEther('2')),
+      stakingContract.stakeFor(signer3.address, ethers.utils.parseEther('3')),
     ]);
 
-    await Promise.all([
-      stakingContract.connect(signer1).stake(ethers.utils.parseEther('1')),
-      stakingContract.connect(signer2).stake(ethers.utils.parseEther('2')),
-      stakingContract.connect(signer3).stake(ethers.utils.parseEther('3')),
-    ]);
-
-    await micToken
-      .connect(user10)
-      .approve(stakingContract.address, ethers.utils.parseEther('10'));
-    await stakingContract.connect(user10).stake(ethers.utils.parseEther('10'));
+    await stakingContract.stakeFor(user10.address, ethers.utils.parseEther('10'));
 
     await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
-    await stakingContract.setRewardsDuration(ONE_DAY_IN_SECONDS);
-    await stakingContract.notifyRewardAmount(REWARD_AMOUNT_IN_USDC);
+    await stakingContract.startNewRewardsPeriod(ONE_DAY_IN_SECONDS);
 
     await time.increase(ONE_DAY_IN_SECONDS / 4);
 
-    await stakingContract.connect(signer1).withdraw(ethers.utils.parseEther('1'));
+    await stakingContract.withdrawFor(signer1.address, ethers.utils.parseEther('1'));
 
     const signer1Profit = await stakingContract.earnedReward(signer1.address);
     const signer2Profit = await stakingContract.earnedReward(signer2.address);
@@ -252,7 +204,7 @@ describe('Staking contract', async () => {
 
     await time.increase(ONE_DAY_IN_SECONDS / 4);
 
-    await stakingContract.connect(signer2).withdraw(ethers.utils.parseEther('2'));
+    await stakingContract.withdrawFor(signer2.address, ethers.utils.parseEther('2'));
 
     const signer1Profit2 = await stakingContract.earnedReward(signer1.address);
     const signer2Profit2 = await stakingContract.earnedReward(signer2.address);
@@ -279,10 +231,7 @@ describe('Staking contract', async () => {
       REWARD_AMOUNT_IN_USDC.toNumber() * 0.001,
     );
 
-    await micToken
-      .connect(signer1)
-      .approve(stakingContract.address, ethers.utils.parseEther('1'));
-    await stakingContract.connect(signer1).stake(ethers.utils.parseEther('1'));
+    await stakingContract.stakeFor(signer1.address, ethers.utils.parseEther('1'));
 
     await time.increase(ONE_DAY_IN_SECONDS / 2); // staking finished
 
@@ -312,29 +261,25 @@ describe('Staking contract', async () => {
     );
   });
 
-  // TODO: add test when users stake through many staking periods
-
   test('should correctly calculate rewards when users stake through many staking periods', async () => {
-    const { stakingContract, micToken, usdcToken } = await loadFixture(prepareTestEnv);
+    const { stakingContract, micToken, usdcToken } = await loadFixture(
+      prepareSimpleTestEnv,
+    );
 
     const [, user2] = await ethers.getSigners();
 
     await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
-    await stakingContract.setRewardsDuration(ONE_DAY_IN_SECONDS);
-    await stakingContract.notifyRewardAmount(REWARD_AMOUNT_IN_USDC);
+    await stakingContract.startNewRewardsPeriod(ONE_DAY_IN_SECONDS);
 
-    await micToken
-      .connect(user2)
-      .approve(stakingContract.address, ethers.utils.parseEther('100'));
-    await stakingContract.connect(user2).stake(ethers.utils.parseEther('100'));
+    await micToken.approve(stakingContract.address, ethers.utils.parseEther('100'));
+    await stakingContract.stakeFor(user2.address, ethers.utils.parseEther('100'));
 
-    await time.increase(ONE_DAY_IN_SECONDS + 1000);
+    await time.increase(ONE_DAY_IN_SECONDS + 100);
 
     await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
-    await stakingContract.setRewardsDuration(ONE_DAY_IN_SECONDS);
-    await stakingContract.notifyRewardAmount(REWARD_AMOUNT_IN_USDC);
+    await stakingContract.startNewRewardsPeriod(ONE_DAY_IN_SECONDS);
 
-    await time.increase(ONE_DAY_IN_SECONDS + 1000);
+    await time.increase(ONE_DAY_IN_SECONDS + 100);
 
     const profit = await stakingContract.earnedReward(user2.address);
 

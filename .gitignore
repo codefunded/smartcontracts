@@ -11,3 +11,6 @@ artifacts
 
 .turbo/
 deployments/
+
+**/airdropMerkleTree.json
+**/airdropRecipients.json

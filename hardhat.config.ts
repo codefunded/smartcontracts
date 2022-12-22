@@ -9,7 +9,19 @@ const DEFAULT_RANDOM_PRIVATE_KEY =
   '0xf4e8d0152e29b2741d26d1ed0c325b41e33fce30e6b2d4deae4a712afd322e37';
 
 const config: HardhatUserConfig = {
-  solidity: '0.8.4',
+  solidity: {
+    compilers: [
+      {
+        version: '0.8.16',
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1000,
+          },
+        },
+      },
+    ],
+  },
   networks: {
     localhost: {
       forking: {

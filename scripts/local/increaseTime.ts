@@ -4,7 +4,7 @@ import { time } from '@nomicfoundation/hardhat-network-helpers';
 async function main() {
   console.log('Increasing time...');
   while (true) {
-    await time.increase(time.duration.seconds(10));
+    await time.increase(time.duration.seconds(60));
     console.log('Time increased by 60 seconds');
     await new Promise((resolve) => setTimeout(resolve, 10000)); // every 10 seconds
   }

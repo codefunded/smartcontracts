@@ -23,14 +23,27 @@ const deployTokens: DeployFunction = async function ({
     await verifyContract(micTokenDeployment.address, micTokenDeployment.args!);
   }
 
-  const mintableDeployment = await deploy('MintableToken', {
+  const mintableTokenDeployment = await deploy('MintableToken', {
     from: deployer,
     args: ['MilkyIce ICE', 'ICE'],
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
   if (!networkConfig.isLocal) {
-    await verifyContract(mintableDeployment.address, mintableDeployment.args!);
+    await verifyContract(mintableTokenDeployment.address, mintableTokenDeployment.args!);
+  }
+
+  const governanceTokenDeployment = await deploy('GovernanceDividendTokenWrapper', {
+    from: deployer,
+    args: ['Governance MilkyIce', 'gMIC'],
+    waitConfirmations: networkConfig.confirmations,
+    log: true,
+  });
+  if (!networkConfig.isLocal) {
+    await verifyContract(
+      governanceTokenDeployment.address,
+      governanceTokenDeployment.args!,
+    );
   }
 
   log('-----Tokens deployed-----');

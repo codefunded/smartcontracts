@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.16;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import '@openzeppelin/contracts/token/ERC20/extensions/draft-IERC20Permit.sol';
 import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/security/ReentrancyGuard.sol';
 import '@openzeppelin/contracts/utils/math/Math.sol';
-import './ERC20/MintableToken.sol';
+import '../tokens/MintableToken.sol';
+import '../staking/interfaces/IStaking.sol';
 
 error Staking__StakeAmountCannotBe0();
 
-/// @title Staking contract that is minting a fixed amount of rewards indefinately in ERC20 token owned by the project creator
-/// @notice This contract allows users to stake ERC20 tokens and receive rewards in other ERC20 token
-contract MintStaking is Ownable, ReentrancyGuard {
+/**
+ * @notice Staking contract that is minting a fixed amount of rewards indefinately in ERC20 token
+ * owned by the project creator
+ * @dev This contract has to be able to mint rewards token. Additionally, this contract does not hold
+ * any tokens, they are held on the MultiERC20WeightedLocker contract. This contract is only responsible
+ * for minting reward tokens and keeping track of the rewards.
+ */
+contract MintStaking is IStaking, Ownable, ReentrancyGuard {
   event StakeDeposited(address indexed staker, uint256 amount, uint256 timestamp);
   event StakeWithdrawn(address indexed staker, uint256 amount, uint256 timestamp);
   event RewardsCollected(address indexed staker, uint256 amount, uint256 timestamp);
@@ -41,6 +46,8 @@ contract MintStaking is Ownable, ReentrancyGuard {
     rewardRate = _rewardRate;
   }
 
+  // ======== MODIFIERS ========
+
   modifier updateReward(address _account) {
     rewardPerTokenStored = rewardPerToken();
     updatedAt = lastTimeRewardApplicable();
@@ -52,6 +59,8 @@ contract MintStaking is Ownable, ReentrancyGuard {
 
     _;
   }
+
+  // ======== VIEW FUNCTIONS ========
 
   function lastTimeRewardApplicable() public view returns (uint256) {
     return block.timestamp;
@@ -65,62 +74,55 @@ contract MintStaking is Ownable, ReentrancyGuard {
     return rewardPerTokenStored + rewardRate * (lastTimeRewardApplicable() - updatedAt);
   }
 
-  function stakeWithPermit(
-    uint256 _amount,
-    uint256 _deadline,
-    uint8 _v,
-    bytes32 _r,
-    bytes32 _s
-  ) external {
-    IERC20Permit(address(stakingToken)).permit(
-      msg.sender,
-      address(this),
-      _amount,
-      _deadline,
-      _v,
-      _r,
-      _s
-    );
-    stake(_amount);
-  }
-
-  function stake(uint256 _amount) public updateReward(msg.sender) nonReentrant {
-    if (_amount == 0) {
-      revert Staking__StakeAmountCannotBe0();
-    }
-
-    balanceOf[msg.sender] += _amount;
-    totalSupply += _amount;
-    stakingToken.transferFrom(msg.sender, address(this), _amount);
-
-    emit StakeDeposited(msg.sender, _amount, block.timestamp);
-  }
-
-  function withdraw(uint256 _amount) external updateReward(msg.sender) nonReentrant {
-    if (_amount == 0) {
-      revert Staking__StakeAmountCannotBe0();
-    }
-
-    balanceOf[msg.sender] -= _amount;
-    totalSupply -= _amount;
-    stakingToken.transfer(msg.sender, _amount);
-
-    emit StakeWithdrawn(msg.sender, _amount, block.timestamp);
-  }
-
-  function earnedReward(address _account) public view returns (uint256) {
+  function earnedReward(address _account) public view override returns (uint256) {
     return
       ((balanceOf[_account] * (rewardPerToken() - userRewardPerTokenPaid[_account])) /
         1e18) + rewards[_account];
   }
 
-  function collectReward() external updateReward(msg.sender) nonReentrant {
-    uint256 reward = rewards[msg.sender];
-    if (reward > 0) {
-      rewards[msg.sender] = 0;
-      rewardsToken.mint(msg.sender, reward);
+  function getRewardToken() external view override returns (address) {
+    return address(rewardsToken);
+  }
+
+  // ======== USER FACING FUNCTIONS ========
+
+  function stakeFor(
+    address _user,
+    uint256 _amount
+  ) public override updateReward(_user) nonReentrant {
+    if (_amount == 0) {
+      revert Staking__StakeAmountCannotBe0();
     }
 
-    emit RewardsCollected(msg.sender, reward, block.timestamp);
+    balanceOf[_user] += _amount;
+    totalSupply += _amount;
+
+    emit StakeDeposited(_user, _amount, block.timestamp);
+  }
+
+  function withdrawFor(
+    address _user,
+    uint256 _amount
+  ) external override updateReward(_user) nonReentrant {
+    if (_amount == 0) {
+      revert Staking__StakeAmountCannotBe0();
+    }
+
+    balanceOf[_user] -= _amount;
+    totalSupply -= _amount;
+
+    emit StakeWithdrawn(_user, _amount, block.timestamp);
+  }
+
+  function collectRewardsFor(
+    address _user
+  ) external override updateReward(_user) nonReentrant returns (uint256 reward) {
+    reward = rewards[_user];
+    if (reward > 0) {
+      rewards[_user] = 0;
+      rewardsToken.mint(_user, reward);
+    }
+
+    emit RewardsCollected(_user, reward, block.timestamp);
   }
 }
