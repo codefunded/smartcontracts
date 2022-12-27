@@ -26,7 +26,7 @@ const deployStaking: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(stakingDeployment.address, stakingDeployment.args!);
   }
 
@@ -40,7 +40,7 @@ const deployStaking: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(mintStakingDeployment.address, mintStakingDeployment.args!);
   }
 

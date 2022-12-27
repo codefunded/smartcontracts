@@ -26,7 +26,7 @@ const deployAirdrop: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(airdropDeployment.address, airdropDeployment.args!);
   }
   await dividendToken.transfer(

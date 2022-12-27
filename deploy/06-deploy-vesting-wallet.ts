@@ -33,9 +33,10 @@ const deployVestingWallet: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(vestingWalletDeployment.address, vestingWalletDeployment.args!);
   }
+
   await dividendToken.transfer(
     vestingWalletDeployment.address,
     ethers.utils.parseEther('5000000'),

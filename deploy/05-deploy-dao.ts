@@ -22,7 +22,7 @@ const deployDAO: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(timelockDeployment.address, timelockDeployment.args!);
   }
 
@@ -45,7 +45,7 @@ const deployDAO: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(governorDeployment.address, governorDeployment.args!);
   }
 

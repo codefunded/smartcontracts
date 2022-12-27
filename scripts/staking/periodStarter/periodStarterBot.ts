@@ -27,6 +27,7 @@ async function main() {
 
   while (true) {
     try {
+      // sender has to have the PERIOD_STARTER role
       await staking.startNewRewardsPeriod(
         calculatePeriodLengthInSeconds(currentRewardPeriodFinishTimestamp),
       );
@@ -41,7 +42,7 @@ async function main() {
       }
 
       console.log(`[${new Date().toISOString()}] - Period is still not over...`);
-      await new Promise((resolve) => setTimeout(resolve, 3000)); // every second
+      await new Promise((resolve) => setTimeout(resolve, 5000)); // every 5 seconds
     }
   }
 

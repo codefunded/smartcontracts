@@ -7,16 +7,15 @@ import {Staking} from './Staking.sol';
 import '../gelatoAutomate/OpsReady.sol';
 import '../tokens/MultiERC20WeightedLocker.sol';
 
-error PeriodStarter__TimestampIsInPast();
-error PeriodStarter__TaskAlreadyCreated();
+error StaleDepositLiquidator__TaskAlreadyCreated();
 
 contract StaleDepositLiquidator is Ownable, OpsReady, Escrow {
-  event PeriodStarterTaskScheduled(uint256 timestamp, bytes32 taskId);
-  event PeriodStarterTaskCancelled(uint256 timestamp, bytes32 taskId);
+  event StaleDepositLiquidatorTaskScheduled(uint256 timestamp, bytes32 taskId);
+  event StaleDepositLiquidatorTaskCancelled(uint256 timestamp, bytes32 taskId);
 
   MultiERC20WeightedLocker public immutable locker;
 
-  bytes32 public periodSchedulerTaskId;
+  bytes32 public liquidatorTaskId;
 
   constructor(
     address _ops,
@@ -26,8 +25,8 @@ contract StaleDepositLiquidator is Ownable, OpsReady, Escrow {
   }
 
   function createTask() external onlyOwner {
-    if (periodSchedulerTaskId != bytes32('')) {
-      revert PeriodStarter__TaskAlreadyCreated();
+    if (liquidatorTaskId != bytes32('')) {
+      revert StaleDepositLiquidator__TaskAlreadyCreated();
     }
     ModuleData memory moduleData = ModuleData({
       modules: new Module[](1),
@@ -39,20 +38,20 @@ contract StaleDepositLiquidator is Ownable, OpsReady, Escrow {
       abi.encodeCall(this.getListOfStaleDepositsToLiquidate, ())
     );
 
-    periodSchedulerTaskId = ops.createTask(
+    liquidatorTaskId = ops.createTask(
       msg.sender,
-      bytes(''),
+      abi.encode(this.liquidateStaleDeposits.selector),
       moduleData,
       NATIVE_TOKEN
     );
 
-    emit PeriodStarterTaskScheduled(block.timestamp, periodSchedulerTaskId);
+    emit StaleDepositLiquidatorTaskScheduled(block.timestamp, liquidatorTaskId);
   }
 
   function cancelTask() external onlyOwner {
-    ops.cancelTask(periodSchedulerTaskId);
-    periodSchedulerTaskId = bytes32('');
-    emit PeriodStarterTaskCancelled(block.timestamp, periodSchedulerTaskId);
+    ops.cancelTask(liquidatorTaskId);
+    emit StaleDepositLiquidatorTaskCancelled(block.timestamp, liquidatorTaskId);
+    liquidatorTaskId = bytes32('');
   }
 
   function withdrawFunds() external onlyOwner {

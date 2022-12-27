@@ -22,7 +22,7 @@ type NetworkConfig = {
     gelatoAutomate: string;
   };
   confirmations: number;
-  isLocal: boolean;
+  shouldVerifyContracts: boolean;
   TEAM_ADDRESS: string;
   AIRDROP_ROOT: string;
 };
@@ -48,7 +48,7 @@ export const NETWORK_CONFIGS: { [chainId: string]: NetworkConfig | undefined } =
       gelatoAutomate: '0x527a819db1eb0e34426297b03bae11F2f8B3A19E',
     },
     confirmations: 1,
-    isLocal: true,
+    shouldVerifyContracts: false,
     TEAM_ADDRESS: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
     AIRDROP_ROOT: '0xe99467d027c1d99b544d929e378c5ecfc6b0e521f7cc79d93719111138a166eb',
   },
@@ -62,7 +62,7 @@ export const NETWORK_CONFIGS: { [chainId: string]: NetworkConfig | undefined } =
       gelatoAutomate: '0x527a819db1eb0e34426297b03bae11F2f8B3A19E',
     },
     confirmations: 20,
-    isLocal: false,
+    shouldVerifyContracts: true,
     TEAM_ADDRESS: ethers.constants.AddressZero,
     AIRDROP_ROOT: ethers.constants.AddressZero,
   },
@@ -74,9 +74,10 @@ export const NETWORK_CONFIGS: { [chainId: string]: NetworkConfig | undefined } =
       micToken: MIC_ADDRESS,
       usdcToken: USDC_ADDRESS,
       gelatoAutomate: '0xB3f5503f93d5Ef84b06993a1975B9D21B962892F',
+      dexRouter: '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506', // Sushiswap router
     },
     confirmations: 20,
-    isLocal: false,
+    shouldVerifyContracts: false,
     TEAM_ADDRESS: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
     AIRDROP_ROOT: '0xe99467d027c1d99b544d929e378c5ecfc6b0e521f7cc79d93719111138a166eb',
   },

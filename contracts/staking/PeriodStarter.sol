@@ -42,7 +42,7 @@ contract PeriodStarter is AccessControl, OpsReady {
 
     periodSchedulerTaskId = ops.createTask(
       msg.sender,
-      bytes(''),
+      abi.encode(this.startNewRewardsPeriod.selector),
       moduleData,
       NATIVE_TOKEN
     );
@@ -52,8 +52,8 @@ contract PeriodStarter is AccessControl, OpsReady {
 
   function cancelTask() external onlyRole(DEFAULT_ADMIN_ROLE) {
     ops.cancelTask(periodSchedulerTaskId);
-    periodSchedulerTaskId = bytes32('');
     emit PeriodStarterTaskCancelled(block.timestamp, periodSchedulerTaskId);
+    periodSchedulerTaskId = bytes32('');
   }
 
   function withdrawFunds(address owner) external onlyRole(DEFAULT_ADMIN_ROLE) {

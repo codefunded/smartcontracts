@@ -36,7 +36,7 @@ const deployERC20Locker: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(
       multiERC20WeightedLockerDeployment.address,
       multiERC20WeightedLockerDeployment.args!,

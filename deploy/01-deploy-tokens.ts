@@ -2,6 +2,7 @@ import { HardhatRuntimeEnvironment } from 'hardhat/types';
 import { DeployFunction } from 'hardhat-deploy/types';
 import { getNetworkConfig } from '../utils/networkConfigs';
 import { verifyContract } from '../utils/verifyContract';
+import { ethers } from 'hardhat';
 
 const deployTokens: DeployFunction = async function ({
   getNamedAccounts,
@@ -13,13 +14,15 @@ const deployTokens: DeployFunction = async function ({
   const chainId = await getChainId();
   const networkConfig = getNetworkConfig(chainId);
 
+  const MAX_SUPPLY = ethers.utils.parseEther(Number(10_000_000).toString());
+
   const micTokenDeployment = await deploy('DividendToken', {
     from: deployer,
-    args: ['MilkyIce', 'MIC', 10_000_000],
+    args: ['MilkyIce', 'MIC', MAX_SUPPLY],
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(micTokenDeployment.address, micTokenDeployment.args!);
   }
 
@@ -29,7 +32,7 @@ const deployTokens: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(mintableTokenDeployment.address, mintableTokenDeployment.args!);
   }
 
@@ -39,7 +42,7 @@ const deployTokens: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(
       governanceTokenDeployment.address,
       governanceTokenDeployment.args!,

@@ -78,6 +78,12 @@ export const prepareFullTestEnv = async () => {
   );
   await periodStarter.grantRole(periodStarter.SCHEDULER_ROLE(), user.address);
 
+  const liquidatorFactory = await ethers.getContractFactory('StaleDepositLiquidator');
+  const liquidator = await liquidatorFactory.deploy(
+    getNetworkConfig('31337').existingContracts.gelatoAutomate,
+    locker.address,
+  );
+
   return {
     micToken,
     micTokenPermit,
@@ -87,5 +93,6 @@ export const prepareFullTestEnv = async () => {
     governanceToken,
     micUsdcLpPair,
     periodStarter,
+    liquidator,
   };
 };

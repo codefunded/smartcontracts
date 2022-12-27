@@ -23,7 +23,7 @@ const deployDAO: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(
       staleDepositLiquidatorDeployment.address,
       staleDepositLiquidatorDeployment.args!,
@@ -37,7 +37,7 @@ const deployDAO: DeployFunction = async function ({
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
-  if (!networkConfig.isLocal) {
+  if (networkConfig.shouldVerifyContracts) {
     await verifyContract(periodStarterDeployment.address, periodStarterDeployment.args!);
   }
 
