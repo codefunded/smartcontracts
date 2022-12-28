@@ -5,6 +5,7 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test --parallel",
+    "test:unparallel": "hardhat test",
     "coverage": "hardhat coverage",
     "hh:node": "hardhat node",
     "slither": "ts-node tools/slither.ts"

@@ -28,7 +28,7 @@ const deployERC20Locker: DeployFunction = async function ({
           baseRewardModifier: 10000,
           isEntitledToVote: true,
           isLPToken: false,
-          dexPairAddress: ethers.constants.AddressZero,
+          lockPeriods: [{ durationInSeconds: 0, rewardModifier: 10000 }],
         },
       ],
       governanceToken.address,

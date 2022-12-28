@@ -16,6 +16,7 @@ contract PeriodStarter is AccessControl, OpsReady {
   Staking public immutable stakingContract;
 
   uint256 public nextStakingPeriodFinishAt;
+  uint256 public nextPeriodRewardsAmount;
 
   bytes32 public constant SCHEDULER_ROLE = keccak256('SCHEDULER_ROLE');
 
@@ -61,7 +62,8 @@ contract PeriodStarter is AccessControl, OpsReady {
   }
 
   function scheduleNextRewardsPeriod(
-    uint256 _nextPeriodFinishTimestamp
+    uint256 _nextPeriodFinishTimestamp,
+    uint256 _nextPeriodRewardsAmount
   ) external onlyRole(SCHEDULER_ROLE) {
     if (block.timestamp >= _nextPeriodFinishTimestamp) {
       revert PeriodStarter__TimestampIsInPast();
@@ -71,6 +73,7 @@ contract PeriodStarter is AccessControl, OpsReady {
       revert PeriodStarter__NewTimestampIsOlderThanExistingOne();
     }
     nextStakingPeriodFinishAt = _nextPeriodFinishTimestamp;
+    nextPeriodRewardsAmount = _nextPeriodRewardsAmount;
   }
 
   function canStartNewRewardsPeriod()
@@ -83,11 +86,20 @@ contract PeriodStarter is AccessControl, OpsReady {
       return (false, 'Current period is not finished yet');
     }
     uint256 nextPeriodDuration = nextStakingPeriodFinishAt - currentPeriodFinishAt;
-    return (true, abi.encodeCall(this.startNewRewardsPeriod, (nextPeriodDuration)));
+    return (
+      true,
+      abi.encodeCall(
+        this.startNewRewardsPeriod,
+        (nextPeriodDuration, nextPeriodRewardsAmount)
+      )
+    );
   }
 
-  function startNewRewardsPeriod(uint256 nextPeriodDuration) external automatedTask {
+  function startNewRewardsPeriod(
+    uint256 _nextPeriodDuration,
+    uint256 _nextPeriodRewardsAmount
+  ) external automatedTask {
     // all checks are done in staking contract
-    stakingContract.startNewRewardsPeriod(nextPeriodDuration);
+    stakingContract.startNewRewardsPeriod(_nextPeriodDuration, _nextPeriodRewardsAmount);
   }
 }

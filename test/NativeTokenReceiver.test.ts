@@ -6,7 +6,7 @@ import { prepareFullTestEnv } from '../utils/testHelpers/fixtures/prepareTestEnv
 
 describe('NativeTokenReceiver', async () => {
   test('should allow to receive and withdraw native tokens', async () => {
-    const { periodStarter } = await loadFixture(prepareFullTestEnv);
+    const { periodStarter } = await prepareFullTestEnv();
     const [user] = await ethers.getSigners();
 
     const userBalance = await ethers.provider.getBalance(user.address);

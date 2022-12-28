@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 import { BigNumber } from 'ethers';
 
 const STAKING_CONTRACT_ADDRESS = process.env.STAKING_CONTRACT_ADDRESS;
+const REWARDS_AMOUNT = process.env.REWARDS_AMOUNT;
 
 const calculatePeriodLengthInSeconds = (
   currentRewardPeriodFinishTimestamp: BigNumber,
@@ -15,9 +16,16 @@ const calculatePeriodLengthInSeconds = (
   return finishDateOfNextPeriod.diff(finishDateOfCurrentPeriod, 'seconds');
 };
 
+/**
+ * This script starts a new rewards period for the staking contract.
+ * In order to work it has to have REWARDS_AMOUNT specified specifically for the next staking period.
+ */
 async function main() {
   if (STAKING_CONTRACT_ADDRESS === undefined) {
     throw new Error('STAKING_CONTRACT_ADDRESS must be set');
+  }
+  if (REWARDS_AMOUNT === undefined) {
+    throw new Error('REWARDS_AMOUNT must be set');
   }
 
   const staking = await ethers.getContractAt('Staking', STAKING_CONTRACT_ADDRESS);
@@ -30,6 +38,7 @@ async function main() {
       // sender has to have the PERIOD_STARTER role
       await staking.startNewRewardsPeriod(
         calculatePeriodLengthInSeconds(currentRewardPeriodFinishTimestamp),
+        REWARDS_AMOUNT,
       );
       break;
     } catch (err) {

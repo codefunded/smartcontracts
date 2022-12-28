@@ -5,13 +5,20 @@ import { test } from 'mocha';
 import { generateLeaf, generateMerkleTree } from '../utils/generateMerkleTree';
 import { deployAirdropContract } from '../utils/testHelpers/fixtures/deployAirdropContract';
 import { prepareSimpleTestEnv } from '../utils/testHelpers/fixtures/prepareTestEnv';
+import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
+import { ERC20 } from '../typechain-types';
 
 describe('Airdrop contract', async () => {
+  let micToken: ERC20;
+  let user1: SignerWithAddress;
+  let user2: SignerWithAddress;
+
+  beforeEach(async () => {
+    ({micToken}= await prepareSimpleTestEnv());
+    [user1, user2] = await ethers.getSigners();
+  });
+
   test('should allow to claim airdrop when user is listed in the airdrop', async () => {
-    const { micToken } = await loadFixture(prepareSimpleTestEnv);
-
-    const [user1] = await ethers.getSigners();
-
     const { merkleTree, merkleRoot } = await generateMerkleTree([
       {
         address: user1.address,
@@ -33,10 +40,6 @@ describe('Airdrop contract', async () => {
   });
 
   test('should not allow to claim aidrop when incorrect amount is provided', async () => {
-    const { micToken } = await loadFixture(prepareSimpleTestEnv);
-
-    const [user1] = await ethers.getSigners();
-
     const { merkleTree, merkleRoot } = await generateMerkleTree([
       {
         address: user1.address,
@@ -53,10 +56,6 @@ describe('Airdrop contract', async () => {
   });
 
   test('should not allow to claim aidrop when incorrect address is provided', async () => {
-    const { micToken } = await loadFixture(prepareSimpleTestEnv);
-
-    const [user1, user2] = await ethers.getSigners();
-
     const { merkleTree, merkleRoot } = await generateMerkleTree([
       {
         address: user1.address,
@@ -73,10 +72,6 @@ describe('Airdrop contract', async () => {
   });
 
   test('should not allow to claim aidrop when incorrect proof is provided', async () => {
-    const { micToken } = await loadFixture(prepareSimpleTestEnv);
-
-    const [user1, user2] = await ethers.getSigners();
-
     const { merkleTree, merkleRoot } = await generateMerkleTree([
       {
         address: user1.address,

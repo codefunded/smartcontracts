@@ -15,26 +15,12 @@ import '../utils/Array.sol';
 import '../utils/LockableAsset.sol';
 
 /**
- * @dev lock period duration with the corresponding reward modifier
- * NoLock: no lock and x1 reward modifier
- * NinetyDays: 90 days lock and x1.02 reward modifier
- * OneHundredAndEightyDays, 180 days lock and 1.05 reward modifier
- * ThreeHundredAndSixtyDays, 360 days lock and 1.12 reward modifier
- */
-enum LockPeriod {
-  NoLock,
-  NinetyDays,
-  OneHundredAndEightyDays,
-  ThreeHundredAndSixtyDays
-}
-
-/**
  * @dev Struct to hold user's stake.
  * @param lockableAssetIndex The index of the lockable asset in the lockableAssets array.
  * @param stakingContractIndex The index of the staking contract in the stakingContracts array.
  * @param amountLocked The amount of the lockable asset that is locked.
  * @param amountMinted The amount of the token that is minted, taking multipliers into account.
- * @param lockPeriod The lock period of the stake (enum LockPeriod).
+ * @param lockPeriod The lock period of the stake (duration in seconds and reward modifier in basis points)
  * @param depositTimestamp The timestamp of the deposit.
  * @param unlockAvailibleTimestamp The timestamp when the stake can be unlocked.
  * @param isOngoing Whether the stake is ongoing or not. If false, it means that the stake has been withdrawn.
@@ -52,6 +38,7 @@ struct Deposit {
 
 error MultiERC20WeightedLocker__InvalidLockableAssetIndex();
 error MultiERC20WeightedLocker__InvalidStakingContractIndex();
+error MultiERC20WeightedLocker__InvalidLockPeriodId();
 error MultiERC20WeightedLocker__TransferFailed();
 error MultiERC20WeightedLocker__DepositIsNotOngoing();
 error MultiERC20WeightedLocker__DepositIsStillLocked();
@@ -85,7 +72,7 @@ contract MultiERC20WeightedLocker is
     address stakingContractAddress,
     uint256 amountLocked,
     uint256 amountMinted,
-    LockPeriod lockPeriod,
+    uint256 lockPeriodDuration,
     uint256 depositTimestamp,
     uint256 unlockAvailibleTimestamp
   );
@@ -123,9 +110,9 @@ contract MultiERC20WeightedLocker is
   mapping(address => uint256) public userDepositsAmount;
   /// @dev list of all addresses that have deposited
   address[] public depositors;
-  // @dev total amount of depositors
+  /// @dev total amount of depositors
   uint256 public depositorsAmount;
-
+  /// @dev list of lockable assets
   LockableAsset[] public lockableAssets;
   /// @dev lockable asset index => are deposits disabled for this asset
   mapping(uint256 => bool) public isDepositingDisabledForAsset;
@@ -214,7 +201,7 @@ contract MultiERC20WeightedLocker is
     uint256 _lockableAssetIndex,
     uint256 _stakingContractIndex,
     uint256 _amount,
-    LockPeriod lockPeriod
+    uint256 lockPeriodId
   ) public returns (uint256 depositId, uint256 mintedAmount) {
     if (_lockableAssetIndex >= lockableAssets.length)
       revert MultiERC20WeightedLocker__InvalidLockableAssetIndex();
@@ -226,6 +213,9 @@ contract MultiERC20WeightedLocker is
     }
 
     LockableAsset memory lockableAsset = lockableAssets[_lockableAssetIndex];
+    if (lockPeriodId >= lockableAsset.lockPeriods.length) {
+      revert MultiERC20WeightedLocker__InvalidLockPeriodId();
+    }
 
     IStaking stakingContract = stakingContracts[_stakingContractIndex];
 
@@ -256,7 +246,10 @@ contract MultiERC20WeightedLocker is
     }
 
     mintedAmount = _amount.applyModifierInBasisPoint(
-      _calculateRewardModifier(lockableAsset.baseRewardModifier, lockPeriod)
+      _calculateRewardModifier(
+        lockableAsset.baseRewardModifier,
+        lockableAsset.lockPeriods[lockPeriodId].rewardModifier
+      )
     );
     _mint(_msgSender(), mintedAmount);
     if (lockableAsset.isEntitledToVote) {
@@ -269,7 +262,7 @@ contract MultiERC20WeightedLocker is
       _stakingContractIndex,
       initialDeposit,
       mintedAmount,
-      lockPeriod
+      lockableAsset.lockPeriods[lockPeriodId]
     );
 
     emit DepositCreated(
@@ -279,7 +272,7 @@ contract MultiERC20WeightedLocker is
       address(stakingContract),
       initialDeposit,
       mintedAmount,
-      lockPeriod,
+      lockableAsset.lockPeriods[lockPeriodId].durationInSeconds,
       block.timestamp,
       userDeposits[_msgSender()][depositId].unlockAvailibleTimestamp
     );
@@ -290,7 +283,7 @@ contract MultiERC20WeightedLocker is
     uint256 _lockableAssetIndex,
     uint256 _stakingContractIndex,
     uint256 _amount,
-    LockPeriod lockPeriod,
+    uint256 lockPeriodId,
     uint256 deadline,
     uint8 v,
     bytes32 r,
@@ -308,7 +301,7 @@ contract MultiERC20WeightedLocker is
       r,
       s
     );
-    return stake(_lockableAssetIndex, _stakingContractIndex, _amount, lockPeriod);
+    return stake(_lockableAssetIndex, _stakingContractIndex, _amount, lockPeriodId);
   }
 
   /// @notice Withdraw the locked asset, collect rewards and burn the governance token.
@@ -391,7 +384,7 @@ contract MultiERC20WeightedLocker is
     if (deposit.unlockAvailibleTimestamp > block.timestamp) {
       revert MultiERC20WeightedLocker__DepositIsStillLocked();
     }
-    if (deposit.lockPeriod == LockPeriod.NoLock) {
+    if (deposit.lockPeriod.durationInSeconds == 0) {
       revert MultiERC20WeightedLocker__DepositIsNotLocked();
     }
 
@@ -438,17 +431,10 @@ contract MultiERC20WeightedLocker is
   }
 
   function _calculateRewardModifier(
-    uint256 lockRewardModifier,
-    LockPeriod lockPeriod
+    uint256 baseRewardModifier,
+    uint256 lockRewardModifier
   ) internal pure returns (uint256 rewardModifier) {
-    rewardModifier = lockRewardModifier;
-    if (lockPeriod == LockPeriod.NinetyDays) {
-      rewardModifier = rewardModifier.applyModifierInBasisPoint(10200); // x1.02
-    } else if (lockPeriod == LockPeriod.OneHundredAndEightyDays) {
-      rewardModifier = rewardModifier.applyModifierInBasisPoint(10500); // x1.05
-    } else if (lockPeriod == LockPeriod.ThreeHundredAndSixtyDays) {
-      rewardModifier = rewardModifier.applyModifierInBasisPoint(11200); // x1.12
-    }
+    rewardModifier = baseRewardModifier.applyModifierInBasisPoint(lockRewardModifier);
   }
 
   function _addDeposit(
@@ -456,17 +442,10 @@ contract MultiERC20WeightedLocker is
     uint256 _stakingContractIndex,
     uint256 _amount,
     uint256 _mintedAmount,
-    LockPeriod lockPeriod
+    LockPeriod memory lockPeriod
   ) internal returns (uint256 depositId) {
     uint256 depositTimestamp = block.timestamp;
-    uint256 unlockAvailibleTimestamp = depositTimestamp;
-    if (lockPeriod == LockPeriod.NinetyDays) {
-      unlockAvailibleTimestamp += 90 * ONE_DAY_IN_SECONDS;
-    } else if (lockPeriod == LockPeriod.OneHundredAndEightyDays) {
-      unlockAvailibleTimestamp += 180 * ONE_DAY_IN_SECONDS;
-    } else if (lockPeriod == LockPeriod.ThreeHundredAndSixtyDays) {
-      unlockAvailibleTimestamp += 360 * ONE_DAY_IN_SECONDS;
-    }
+    uint256 unlockAvailibleTimestamp = depositTimestamp + lockPeriod.durationInSeconds;
 
     lockedAssetAmount[_lockableAssetIndex] += _amount;
 

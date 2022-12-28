@@ -1,3 +1,4 @@
+import { time } from '@nomicfoundation/hardhat-network-helpers';
 import { ethers } from 'hardhat';
 import { createDexPair } from '../../createDexPair';
 import { getNetworkConfig } from '../../networkConfigs';
@@ -42,18 +43,31 @@ export const prepareFullTestEnv = async () => {
   const MultiERC20WeightedLockerFactory = await ethers.getContractFactory(
     'MultiERC20WeightedLocker',
   );
+
   const lockableAssets = [
     {
       token: micToken.address,
       baseRewardModifier: 10000,
       isEntitledToVote: true,
       isLPToken: false,
+      lockPeriods: [
+        { durationInSeconds: 0, rewardModifier: 10000 },
+        { durationInSeconds: time.duration.days(90), rewardModifier: 10200 },
+        { durationInSeconds: time.duration.days(180), rewardModifier: 10500 },
+        { durationInSeconds: time.duration.days(360), rewardModifier: 11200 },
+      ],
     },
     {
       token: lpPairAddress,
       baseRewardModifier: 11000,
       isEntitledToVote: false,
       isLPToken: true,
+      lockPeriods: [
+        { durationInSeconds: 0, rewardModifier: 10000 },
+        { durationInSeconds: time.duration.days(90), rewardModifier: 10200 },
+        { durationInSeconds: time.duration.days(180), rewardModifier: 10500 },
+        { durationInSeconds: time.duration.days(360), rewardModifier: 11200 },
+      ],
     },
   ];
   const locker = await MultiERC20WeightedLockerFactory.deploy(

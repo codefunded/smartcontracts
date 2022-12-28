@@ -14,6 +14,7 @@ const config: HardhatUserConfig = {
       {
         version: '0.8.16',
         settings: {
+          viaIR: true,
           optimizer: {
             enabled: true,
             runs: 1000,
@@ -22,6 +23,7 @@ const config: HardhatUserConfig = {
       },
     ],
   },
+  defaultNetwork: 'hardhat',
   networks: {
     localhost: {
       forking: {

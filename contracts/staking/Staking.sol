@@ -8,11 +8,10 @@ import '@openzeppelin/contracts/utils/math/Math.sol';
 import '../staking/interfaces/IStaking.sol';
 
 error Staking__StakeAmountCannotBe0();
+error Staking__WithdrawAmountCannotBe0();
 error Staking__RewardsDurationNotFinished();
 error Staking__RewardRateIs0();
-error Staking__RewardAmountIsGreaterThanBalance();
 error Staking__WithdrawAmountBiggerThanStakedAmount();
-error Staking__NoRewardsAddedInNewPeriod();
 error Staking__TransferFailed();
 
 /**
@@ -156,7 +155,7 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
     uint256 _amount
   ) external override updateReward(user) nonReentrant {
     if (_amount == 0) {
-      revert Staking__StakeAmountCannotBe0();
+      revert Staking__WithdrawAmountCannotBe0();
     }
     if (balanceOf[user] < _amount) {
       revert Staking__WithdrawAmountBiggerThanStakedAmount();
@@ -170,28 +169,21 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
 
   // ======== GUARDED FUNCTIONS ========
 
-  /// @notice Starts a new rewards period based on the current balance of the treasury.
+  /// @notice Starts a new rewards period
   /// @dev This function is called by an external script right after the previous rewards period has finished.
   function startNewRewardsPeriod(
-    uint256 _duration
+    uint256 _duration,
+    uint256 _rewardsAmount
   ) external onlyRole(PERIOD_STARTER) updateReward(address(0)) {
-    uint256 rewardsAmount = IERC20(rewardsToken).balanceOf(address(this));
-    uint256 uncollectedRewardsFromCurrentPeriod = currentPeriodRewardsAmount -
-      collectedRewardsInCurrentPeriod;
-    if (rewardsAmount <= uncollectedRewardsFromCurrentPeriod) {
-      revert Staking__NoRewardsAddedInNewPeriod();
-    }
-    rewardsAmount -= uncollectedRewardsFromCurrentPeriod;
-
     _setRewardsDuration(_duration);
-    _notifyRewardAmount(rewardsAmount);
+    _notifyRewardAmount(_rewardsAmount);
 
     emit RewardsPeriodStarted(
       block.timestamp,
       duration,
       finishAt,
       rewardRate,
-      rewardsAmount
+      _rewardsAmount
     );
   }
 
@@ -213,9 +205,6 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
 
     if (rewardRate == 0) {
       revert Staking__RewardRateIs0();
-    }
-    if (rewardRate * duration > rewardsToken.balanceOf(address(this))) {
-      revert Staking__RewardAmountIsGreaterThanBalance();
     }
 
     finishAt = block.timestamp + duration;

@@ -1,11 +1,17 @@
+import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { test } from 'mocha';
 
 describe('NonTransferableToken contract', async () => {
-  test('should not allow to transfer tokens', async () => {
-    const [user1, user2] = await ethers.getSigners();
+  let user1: SignerWithAddress;
+  let user2: SignerWithAddress;
 
+  beforeEach(async () => {
+    [user1, user2] = await ethers.getSigners();
+  });
+
+  test('should not allow to transfer tokens', async () => {
     const nonTransferableTokenFactory = await ethers.getContractFactory(
       'GovernanceDividendTokenWrapper',
     );
@@ -24,8 +30,6 @@ describe('NonTransferableToken contract', async () => {
   });
   
   test('should not allow to call transferFrom', async () => {
-    const [user1, user2] = await ethers.getSigners();
-
     const nonTransferableTokenFactory = await ethers.getContractFactory(
       'GovernanceDividendTokenWrapper',
     );
@@ -50,8 +54,6 @@ describe('NonTransferableToken contract', async () => {
   });
 
   test('should allow to burn', async () => {
-    const [user1] = await ethers.getSigners();
-
     const nonTransferableTokenFactory = await ethers.getContractFactory(
       'GovernanceDividendTokenWrapper',
     );

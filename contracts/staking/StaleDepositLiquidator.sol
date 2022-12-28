@@ -89,7 +89,7 @@ contract StaleDepositLiquidator is Ownable, OpsReady, Escrow {
         Deposit memory deposit = locker.getDeposit(depositor, depositId);
         if (
           deposit.isOngoing &&
-          deposit.lockPeriod != LockPeriod.NoLock &&
+          deposit.lockPeriod.durationInSeconds != 0 &&
           deposit.unlockAvailibleTimestamp < block.timestamp
         ) {
           allDeposits[amountOfDepositsToLiquidate] = DepositToLiquidate(

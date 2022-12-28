@@ -1,15 +1,28 @@
-import { loadFixture, time } from '@nomicfoundation/hardhat-network-helpers';
+import { time } from '@nomicfoundation/hardhat-network-helpers';
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { test } from 'mocha';
-import { ERC20, MultiERC20WeightedLocker } from '../typechain-types';
-import { getNetworkConfig } from '../utils/networkConfigs';
+import {
+  ERC20,
+  MultiERC20WeightedLocker,
+  StaleDepositLiquidator,
+} from '../typechain-types';
 import { prepareFullTestEnv } from '../utils/testHelpers/fixtures/prepareTestEnv';
+import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 
 describe('StaleDepositLiquidator', () => {
+  let liquidator: StaleDepositLiquidator;
+  let micToken: ERC20;
+  let locker: MultiERC20WeightedLocker;
+  let user1: SignerWithAddress;
+  let user2: SignerWithAddress;
+
+  beforeEach(async () => {
+    ({ micToken, locker, liquidator } = await prepareFullTestEnv());
+    [user1, user2] = await ethers.getSigners();
+  });
+
   test('should correctly get the list of stale deposits to liquidate', async () => {
-    const { liquidator, micToken, locker } = await loadFixture(prepareFullTestEnv);
-    const [user] = await ethers.getSigners();
 
     const whenThereAreNoDeposits = await liquidator.getListOfStaleDepositsToLiquidate();
     expect(whenThereAreNoDeposits.canExec).to.be.equal(false);
@@ -25,7 +38,7 @@ describe('StaleDepositLiquidator', () => {
     const txData = liquidator.interface.encodeFunctionData('liquidateStaleDeposits', [
       [
         {
-          depositor: user.address,
+          depositor: user1.address,
           depositId: 1,
         },
       ],
@@ -34,8 +47,6 @@ describe('StaleDepositLiquidator', () => {
   });
 
   test('should not count deposits that are not locked', async () => {
-    const { liquidator, micToken, locker } = await loadFixture(prepareFullTestEnv);
-
     const emptyDepositsToLiquidate = await liquidator.getListOfStaleDepositsToLiquidate();
     expect(emptyDepositsToLiquidate.canExec).to.be.equal(false);
 
@@ -47,8 +58,6 @@ describe('StaleDepositLiquidator', () => {
   });
 
   test('should not count deposits that are no longer ongoing', async () => {
-    const { liquidator, micToken, locker } = await loadFixture(prepareFullTestEnv);
-
     await micToken.approve(locker.address, ethers.utils.parseEther('1'));
     await locker.stake(0, 0, ethers.utils.parseEther('1'), 1);
 
@@ -61,9 +70,6 @@ describe('StaleDepositLiquidator', () => {
   });
 
   test('should be able to liquidate deposits', async () => {
-    const { liquidator, micToken, locker } = await loadFixture(prepareFullTestEnv);
-    const [user] = await ethers.getSigners();
-
     await micToken.approve(locker.address, ethers.utils.parseEther('1'));
     await locker.stake(0, 0, ethers.utils.parseEther('1'), 1);
 
@@ -74,18 +80,16 @@ describe('StaleDepositLiquidator', () => {
 
     await liquidator.liquidateStaleDeposits([
       {
-        depositor: user.address,
+        depositor: user1.address,
         depositId: 1,
       },
     ]);
 
-    const deposit = await locker.getDeposit(user.address, 1);
+    const deposit = await locker.getDeposit(user1.address, 1);
     expect(deposit.isOngoing).to.be.equal(false);
   });
 
   test('Should allow to start a task for constantly checking for possible liquidations', async () => {
-    const { liquidator } = await loadFixture(prepareFullTestEnv);
-
     const tx = await liquidator.createTask();
     const receipt = await tx.wait();
 
@@ -101,8 +105,6 @@ describe('StaleDepositLiquidator', () => {
   });
 
   test('Should allow to cancel a task for constantly checking for possible liquidations', async () => {
-    const { liquidator } = await loadFixture(prepareFullTestEnv);
-
     await liquidator.createTask();
     expect(await liquidator.liquidatorTaskId()).to.be.not.equal(
       '0x0000000000000000000000000000000000000000000000000000000000000000',

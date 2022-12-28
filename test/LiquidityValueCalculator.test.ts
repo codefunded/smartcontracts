@@ -5,12 +5,21 @@ import { test } from 'mocha';
 import { addLiquidityToPair } from '../utils/addLiquidityToPair';
 import { createDexPair } from '../utils/createDexPair';
 import { prepareSimpleTestEnv } from '../utils/testHelpers/fixtures/prepareTestEnv';
+import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
+import { ERC20, IERC20 } from '../typechain-types';
 
 describe('LiquidityValueCalculator contract', async () => {
-  test('should calculate the amounts of tokens that make up the liquidity pool', async () => {
-    const { micToken, usdcToken } = await loadFixture(prepareSimpleTestEnv);
-    const [user] = await ethers.getSigners();
+  let micToken: ERC20;
+  let usdcToken: IERC20;
+  let user1: SignerWithAddress;
+  let user2: SignerWithAddress;
 
+  beforeEach(async () => {
+    ({micToken, usdcToken} = await prepareSimpleTestEnv());
+    [user1, user2] = await ethers.getSigners();
+  });
+  
+  test('should calculate the amounts of tokens that make up the liquidity pool', async () => {
     const dexPairAddress = await createDexPair({
       token0: micToken.address,
       token1: usdcToken.address,
@@ -25,7 +34,7 @@ describe('LiquidityValueCalculator contract', async () => {
       token1: usdcToken,
       amount0: amountA,
       amount1: amountB,
-      userAddress: user.address,
+      userAddress: user1.address,
     });
 
     const LiquidityValueCalculatorFactory = await ethers.getContractFactory(
@@ -36,7 +45,7 @@ describe('LiquidityValueCalculator contract', async () => {
     const { tokenAAmount, tokenBAmount } =
       await liquidityValueCalculator.computeLiquidityShareValue(
         dexPairAddress,
-        dexPair.balanceOf(user.address),
+        dexPair.balanceOf(user1.address),
         micToken.address,
       );
 
