@@ -12,9 +12,18 @@ const config: HardhatUserConfig = {
   solidity: {
     compilers: [
       {
-        version: '0.8.16',
+        version: '0.8.17',
         settings: {
           viaIR: true,
+          optimizer: {
+            enabled: true,
+            runs: 1000,
+          },
+        },
+      },
+      {
+        version: '0.6.6',
+        settings: {
           optimizer: {
             enabled: true,
             runs: 1000,
@@ -28,14 +37,12 @@ const config: HardhatUserConfig = {
     localhost: {
       forking: {
         url: process.env.POLYGON_MAINNET_RPC!,
-        blockNumber: 34881158,
       },
       chainId: 31337,
     },
     hardhat: {
       forking: {
         url: process.env.POLYGON_MAINNET_RPC!,
-        blockNumber: 34881158,
       },
       chainId: 31337,
       accounts: [

@@ -12,8 +12,9 @@ export const createDexPair = async ({
   pairFactoryCreator?: string;
   chainId?: string;
 }) => {
+  const networkConfig = getNetworkConfig(chainId);
   const dexPairFactory =
-    pairFactoryCreator ?? getNetworkConfig(chainId).existingContracts?.pairFactoryCreator;
+    pairFactoryCreator ?? networkConfig.existingContracts?.pairFactoryCreator;
 
   if (!dexPairFactory) {
     throw new Error('No pair factory creator found');
@@ -25,8 +26,10 @@ export const createDexPair = async ({
   );
 
   let address = await dexPairFactoryContract.callStatic.getPair(token0, token1);
-  if(address === ethers.constants.AddressZero){
-    address = await dexPairFactoryContract.callStatic.createPair(token0, token1);
+  if (address === ethers.constants.AddressZero) {
+    const createPairTx = await dexPairFactoryContract.createPair(token0, token1);
+    const receipt = await createPairTx.wait(networkConfig.confirmations);
+    address = receipt.events?.[0].args?.pair;
   }
 
   return address;

@@ -14,17 +14,8 @@ const deployDAO: DeployFunction = async function ({
   const chainId = await getChainId();
   const networkConfig = getNetworkConfig(chainId);
 
-  const stakedDividendTokenAddress = await get('MultiERC20WeightedLocker');
-
-  const timelockDeployment = await deploy('TimeLock', {
-    from: deployer,
-    args: [1, [], []],
-    waitConfirmations: networkConfig.confirmations,
-    log: true,
-  });
-  if (networkConfig.shouldVerifyContracts) {
-    await verifyContract(timelockDeployment.address, timelockDeployment.args!);
-  }
+  const stakedDividendToken = await get('MultiERC20WeightedLocker');
+  const timelockDeployment = await get('TimeLock');
 
   const VOTING_DELAY_IN_BLOCKS = 1;
   const VOTING_PERIOD_IN_BLOCKS = 201600;
@@ -34,7 +25,7 @@ const deployDAO: DeployFunction = async function ({
   const governorDeployment = await deploy('GovernorContract', {
     from: deployer,
     args: [
-      stakedDividendTokenAddress.address,
+      stakedDividendToken.address,
       timelockDeployment.address,
       'MilkyIce Governance',
       VOTING_DELAY_IN_BLOCKS,
@@ -58,17 +49,31 @@ const deployDAO: DeployFunction = async function ({
   const proposerRole = await timelockContract.PROPOSER_ROLE();
   const adminRole = await timelockContract.TIMELOCK_ADMIN_ROLE();
 
-  (await timelockContract.grantRole(proposerRole, governorDeployment.address)).wait(
-    networkConfig.confirmations,
+  const hasProposerRole = await timelockContract.hasRole(
+    proposerRole,
+    governorDeployment.address,
   );
-  (await timelockContract.grantRole(executorRole, ethers.constants.AddressZero)).wait(
-    networkConfig.confirmations,
+  if (!hasProposerRole) {
+    log('Granting proposerRole to governor');
+    await (
+      await timelockContract.grantRole(proposerRole, governorDeployment.address)
+    ).wait(networkConfig.confirmations);
+  }
+
+  const hasExecutorRole = await timelockContract.hasRole(
+    executorRole,
+    governorDeployment.address,
   );
-  (await timelockContract.revokeRole(adminRole, deployer)).wait(
-    networkConfig.confirmations,
-  );
+  if (!hasExecutorRole) {
+    log('Granting executorRole to governor');
+    await (
+      await timelockContract.grantRole(executorRole, governorDeployment.address)
+    ).wait(networkConfig.confirmations);
+  }
 
   log('-----DAO deployed-----');
 };
 
 export default deployDAO;
+
+deployDAO.tags = ['dao'];

@@ -23,7 +23,6 @@ describe('StaleDepositLiquidator', () => {
   });
 
   test('should correctly get the list of stale deposits to liquidate', async () => {
-
     const whenThereAreNoDeposits = await liquidator.getListOfStaleDepositsToLiquidate();
     expect(whenThereAreNoDeposits.canExec).to.be.equal(false);
 
@@ -94,32 +93,28 @@ describe('StaleDepositLiquidator', () => {
     const receipt = await tx.wait();
 
     expect(receipt.events?.length).to.be.greaterThanOrEqual(1);
-    expect(
-      receipt.events?.some(
-        (event) => event.event === 'StaleDepositLiquidatorTaskScheduled',
-      ),
-    ).to.be.equal(true);
-    expect(await liquidator.liquidatorTaskId()).to.be.not.equal(
+    expect(receipt.events?.some((event) => event.event === 'TaskScheduled')).to.be.equal(
+      true,
+    );
+    expect(await liquidator.automationTaskId()).to.be.not.equal(
       '0x0000000000000000000000000000000000000000000000000000000000000000',
     );
   });
 
   test('Should allow to cancel a task for constantly checking for possible liquidations', async () => {
     await liquidator.createTask();
-    expect(await liquidator.liquidatorTaskId()).to.be.not.equal(
+    expect(await liquidator.automationTaskId()).to.be.not.equal(
       '0x0000000000000000000000000000000000000000000000000000000000000000',
     );
 
     const tx = await liquidator.cancelTask();
     const receipt = await tx.wait();
-    expect(await liquidator.liquidatorTaskId()).to.be.equal(
+    expect(await liquidator.automationTaskId()).to.be.equal(
       '0x0000000000000000000000000000000000000000000000000000000000000000',
     );
     expect(receipt.events?.length).to.be.greaterThanOrEqual(1);
-    expect(
-      receipt.events?.some(
-        (event) => event.event === 'StaleDepositLiquidatorTaskCancelled',
-      ),
-    ).to.be.equal(true);
+    expect(receipt.events?.some((event) => event.event === 'TaskCancelled')).to.be.equal(
+      true,
+    );
   });
 });

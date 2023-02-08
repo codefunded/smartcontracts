@@ -14,7 +14,13 @@ export async function deployMintStakingContract(micToken: IERC20) {
     REWARD_RATE,
   );
   await mintStakingContract.deployed();
+
+  const [deployer] = await ethers.getSigners();
+
   await iceToken.grantRole(await iceToken.MINTER_ROLE(), mintStakingContract.address);
+  await iceToken.grantRole(await iceToken.MINTER_ROLE(), deployer.address);
+
+  await iceToken.mint(deployer.address, ethers.utils.parseEther('1000'));
 
   return { mintStakingContract, iceToken };
 }

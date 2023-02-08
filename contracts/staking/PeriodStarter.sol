@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 import '@openzeppelin/contracts/access/AccessControl.sol';
 import {Staking} from './Staking.sol';
 import '../gelatoAutomate/OpsReady.sol';
 
 error PeriodStarter__TimestampIsInPast();
+error PeriodStarter__CurrentPeriodNotYetFinished();
+error PeriodStarter__PeriodDurationCannotBe0();
 error PeriodStarter__NewTimestampIsOlderThanExistingOne();
 error PeriodStarter__TaskAlreadyCreated();
 
 contract PeriodStarter is AccessControl, OpsReady {
-  event PeriodStarterTaskScheduled(uint256 timestamp, bytes32 taskId);
-  event PeriodStarterTaskCancelled(uint256 timestamp, bytes32 taskId);
-
   Staking public immutable stakingContract;
 
   uint256 public nextStakingPeriodFinishAt;
@@ -20,42 +19,27 @@ contract PeriodStarter is AccessControl, OpsReady {
 
   bytes32 public constant SCHEDULER_ROLE = keccak256('SCHEDULER_ROLE');
 
-  bytes32 public periodSchedulerTaskId;
-
-  constructor(address _ops, Staking _stakingContract) OpsReady(_ops, msg.sender) {
+  constructor(address _ops, Staking _stakingContract) OpsReady(_ops, address(this)) {
     stakingContract = _stakingContract;
     _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
   }
 
-  function createTask() external onlyRole(DEFAULT_ADMIN_ROLE) {
-    if (periodSchedulerTaskId != bytes32('')) {
-      revert PeriodStarter__TaskAlreadyCreated();
-    }
-    ModuleData memory moduleData = ModuleData({
-      modules: new Module[](1),
-      args: new bytes[](1)
-    });
-    moduleData.modules[0] = Module.RESOLVER;
-    moduleData.args[0] = _resolverModuleArg(
+  // ======== AUTOMATION FUNCTIONS ========
+
+  function createTask() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    super._createTask(
       address(this),
-      abi.encodeCall(this.canStartNewRewardsPeriod, ())
+      abi.encodeCall(this.canStartNewRewardsPeriod, ()),
+      address(this),
+      abi.encode(this.startNewRewardsPeriod.selector)
     );
-
-    periodSchedulerTaskId = ops.createTask(
-      msg.sender,
-      abi.encode(this.startNewRewardsPeriod.selector),
-      moduleData,
-      NATIVE_TOKEN
-    );
-
-    emit PeriodStarterTaskScheduled(block.timestamp, periodSchedulerTaskId);
   }
 
-  function cancelTask() external onlyRole(DEFAULT_ADMIN_ROLE) {
-    ops.cancelTask(periodSchedulerTaskId);
-    emit PeriodStarterTaskCancelled(block.timestamp, periodSchedulerTaskId);
-    periodSchedulerTaskId = bytes32('');
+  function cancelTask() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    super._cancelTask();
   }
+
+  // ======== PUBLIC FUNCTIONS ========
 
   function withdrawFunds(address owner) external onlyRole(DEFAULT_ADMIN_ROLE) {
     _withdrawNativeToken(payable(owner));
@@ -76,30 +60,48 @@ contract PeriodStarter is AccessControl, OpsReady {
     nextPeriodRewardsAmount = _nextPeriodRewardsAmount;
   }
 
+  /**
+   * @notice Checks if the period starter can start a new rewards period.
+   * @dev Automation service uses this function to check if the period starter can start a new rewards period.
+   */
   function canStartNewRewardsPeriod()
-    external
+    public
     view
     returns (bool canExec, bytes memory execPayload)
   {
     uint256 currentPeriodFinishAt = stakingContract.finishAt();
     if (currentPeriodFinishAt > block.timestamp) {
-      return (false, 'Current period is not finished yet');
+      return (false, 'Current period not yet finished');
     }
-    uint256 nextPeriodDuration = nextStakingPeriodFinishAt - currentPeriodFinishAt;
-    return (
-      true,
-      abi.encodeCall(
-        this.startNewRewardsPeriod,
-        (nextPeriodDuration, nextPeriodRewardsAmount)
-      )
-    );
+    return (true, abi.encodeCall(this.startNewRewardsPeriod, ()));
   }
 
-  function startNewRewardsPeriod(
-    uint256 _nextPeriodDuration,
-    uint256 _nextPeriodRewardsAmount
-  ) external automatedTask {
-    // all checks are done in staking contract
-    stakingContract.startNewRewardsPeriod(_nextPeriodDuration, _nextPeriodRewardsAmount);
+  /**
+   * @notice Starts a new rewards period.
+   * @dev Can be called by anyone as the necessary checks are done in the _calculateNextPeriodDuration function and
+   * inside the staking contract. All the parameters can be set only by the owner through scheduleNextRewardsPeriod
+   * function.
+   */
+  function startNewRewardsPeriod() external automatedTask {
+    uint256 nextPeriodDuration = _calculateNextPeriodDuration();
+    stakingContract.startNewRewardsPeriod(nextPeriodDuration, nextPeriodRewardsAmount);
+  }
+
+  // ======== INTERNAL FUNCTIONS ========
+
+  function _calculateNextPeriodDuration()
+    internal
+    view
+    returns (uint256 nextPeriodDuration)
+  {
+    uint256 currentPeriodFinishAt = stakingContract.finishAt();
+    if (currentPeriodFinishAt > block.timestamp) {
+      revert PeriodStarter__CurrentPeriodNotYetFinished();
+    }
+    if (nextStakingPeriodFinishAt == currentPeriodFinishAt) {
+      revert PeriodStarter__PeriodDurationCannotBe0();
+    }
+
+    nextPeriodDuration = nextStakingPeriodFinishAt - currentPeriodFinishAt;
   }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 /**
  * @param durationInSeconds lock duration in seconds
@@ -13,16 +13,19 @@ struct LockPeriod {
 /**
  * @dev Struct to hold the lockable asset information.
  * @param token The address of the token that can be locked.
- * @param baseRewardModifier The base reward modifier for the lockable asset, in basis points
- * e.g. 10000 = 100% = 10000, 105% = 10500, 110% = 11000, etc. 10000 is the default value.
  * @param isEntitledToVote Whether the lockable asset is entitled to vote.
+ * @param lockPeriods The lock periods availible for the particular asset. Lock period is the
+ * duration of the lock in seconds and the reward modifier in basis points (10000 = 100% = x1.0).
  * @param isLPToken Whether the lockable asset is an LP token.
- * @param lockPeriods The lock periods availible for the particular asset.
+ * @param dividendTokenFromPair Address of the token that is used to calculate the dividend for the LP token.
+ * @param priceOracle Address of the price oracle for the LP token.
  */
 struct LockableAsset {
   address token;
-  uint256 baseRewardModifier;
   bool isEntitledToVote;
-  bool isLPToken;
   LockPeriod[] lockPeriods;
+  bool isLPToken;
+  // LP token specific properties
+  address dividendTokenFromPair;
+  address priceOracle;
 }

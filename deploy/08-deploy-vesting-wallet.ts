@@ -5,8 +5,6 @@ import { verifyContract } from '../utils/verifyContract';
 import { ethers } from 'hardhat';
 import { time } from '@nomicfoundation/hardhat-network-helpers';
 
-const getCurrentBlockchainTimestamp = () => Math.floor(Date.now() / 1000);
-
 const deployVestingWallet: DeployFunction = async function ({
   getNamedAccounts,
   deployments,
@@ -23,11 +21,11 @@ const deployVestingWallet: DeployFunction = async function ({
     dividendTokenDeployment.address,
   );
 
-  const vestingWalletDeployment = await deploy('VestingWallet', {
+  const vestingWalletDeployment = await deploy('TeamVestingWallet', {
     from: deployer,
     args: [
       networkConfig.TEAM_ADDRESS,
-      getCurrentBlockchainTimestamp(),
+      networkConfig.VESTING_START_TIMESTAMP,
       time.duration.weeks(4),
     ],
     waitConfirmations: networkConfig.confirmations,
@@ -37,12 +35,19 @@ const deployVestingWallet: DeployFunction = async function ({
     await verifyContract(vestingWalletDeployment.address, vestingWalletDeployment.args!);
   }
 
-  await dividendToken.transfer(
-    vestingWalletDeployment.address,
-    ethers.utils.parseEther('5000000'),
-  );
+  if ((await dividendToken.balanceOf(vestingWalletDeployment.address)).eq(0)) {
+    log('Transferring tokens to vesting wallet');
+    await (
+      await dividendToken.transfer(
+        vestingWalletDeployment.address,
+        ethers.utils.parseEther('5000000'),
+      )
+    ).wait(networkConfig.confirmations);
+  }
 
   log('-----Vesting wallet deployed-----');
 };
 
 export default deployVestingWallet;
+
+deployVestingWallet.tags = ['vesting'];

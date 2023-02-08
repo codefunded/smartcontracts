@@ -1,5 +1,6 @@
 import { time } from '@nomicfoundation/hardhat-network-helpers';
 import { ethers } from 'hardhat';
+import { addLiquidityToPair } from '../../addLiquidityToPair';
 import { createDexPair } from '../../createDexPair';
 import { getNetworkConfig } from '../../networkConfigs';
 import { deployMintStakingContract } from './deployMintStakingContract';
@@ -16,10 +17,10 @@ export const prepareSimpleTestEnv = async () => {
   const { mintStakingContract, iceToken } = await deployMintStakingContract(micToken);
 
   return {
-    stakingContract,
     micToken,
     micTokenPermit,
     usdcToken,
+    stakingContract,
     mintStakingContract,
     iceToken,
   };
@@ -27,6 +28,8 @@ export const prepareSimpleTestEnv = async () => {
 
 export const prepareFullTestEnv = async () => {
   const { micToken, micTokenPermit, usdcToken } = await distributeTokens();
+
+  const [user1] = await ethers.getSigners();
 
   const GovernanceTokenFactory = await ethers.getContractFactory(
     'GovernanceDividendTokenWrapper',
@@ -40,14 +43,31 @@ export const prepareFullTestEnv = async () => {
 
   const micUsdcLpPair = await ethers.getContractAt('IUniswapV2Pair', lpPairAddress);
 
+  await addLiquidityToPair({
+    token0: micToken,
+    token1: usdcToken,
+    amount0: ethers.utils.parseEther('100'),
+    amount1: ethers.utils.parseUnits('125', 6),
+    userAddress: user1.address,
+  });
+
   const MultiERC20WeightedLockerFactory = await ethers.getContractFactory(
     'MultiERC20WeightedLocker',
   );
 
+  const oracleFactory = await ethers.getContractFactory('UniswapV2TwapOracle');
+  const oracle = await oracleFactory.deploy(
+    getNetworkConfig('31337').existingContracts.gelatoAutomate!,
+    micUsdcLpPair.address,
+    time.duration.hours(6),
+  );
+  await time.increase(time.duration.hours(6));
+  await oracle.update();
+  await time.increase(time.duration.hours(6));
+
   const lockableAssets = [
     {
       token: micToken.address,
-      baseRewardModifier: 10000,
       isEntitledToVote: true,
       isLPToken: false,
       lockPeriods: [
@@ -56,18 +76,21 @@ export const prepareFullTestEnv = async () => {
         { durationInSeconds: time.duration.days(180), rewardModifier: 10500 },
         { durationInSeconds: time.duration.days(360), rewardModifier: 11200 },
       ],
+      dividendTokenFromPair: ethers.constants.AddressZero,
+      priceOracle: ethers.constants.AddressZero,
     },
     {
       token: lpPairAddress,
-      baseRewardModifier: 11000,
       isEntitledToVote: false,
       isLPToken: true,
       lockPeriods: [
         { durationInSeconds: 0, rewardModifier: 10000 },
-        { durationInSeconds: time.duration.days(90), rewardModifier: 10200 },
-        { durationInSeconds: time.duration.days(180), rewardModifier: 10500 },
-        { durationInSeconds: time.duration.days(360), rewardModifier: 11200 },
+        { durationInSeconds: time.duration.days(90), rewardModifier: 11220 },
+        { durationInSeconds: time.duration.days(180), rewardModifier: 11550 },
+        { durationInSeconds: time.duration.days(360), rewardModifier: 12320 },
       ],
+      dividendTokenFromPair: micToken.address,
+      priceOracle: oracle.address,
     },
   ];
   const locker = await MultiERC20WeightedLockerFactory.deploy(
@@ -87,14 +110,14 @@ export const prepareFullTestEnv = async () => {
 
   const periodStarterFactory = await ethers.getContractFactory('PeriodStarter');
   const periodStarter = await periodStarterFactory.deploy(
-    getNetworkConfig('31337').existingContracts.gelatoAutomate,
+    getNetworkConfig('31337').existingContracts.gelatoAutomate!,
     staking.address,
   );
   await periodStarter.grantRole(periodStarter.SCHEDULER_ROLE(), user.address);
 
   const liquidatorFactory = await ethers.getContractFactory('StaleDepositLiquidator');
   const liquidator = await liquidatorFactory.deploy(
-    getNetworkConfig('31337').existingContracts.gelatoAutomate,
+    getNetworkConfig('31337').existingContracts.gelatoAutomate!,
     locker.address,
   );
 
@@ -106,6 +129,7 @@ export const prepareFullTestEnv = async () => {
     locker,
     governanceToken,
     micUsdcLpPair,
+    oracle,
     periodStarter,
     liquidator,
   };

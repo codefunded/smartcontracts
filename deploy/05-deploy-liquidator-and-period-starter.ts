@@ -4,7 +4,7 @@ import { getNetworkConfig } from '../utils/networkConfigs';
 import { verifyContract } from '../utils/verifyContract';
 import { ethers } from 'hardhat';
 
-const deployDAO: DeployFunction = async function ({
+const deployLiquidatorAndPeriodStarter: DeployFunction = async function ({
   getNamedAccounts,
   deployments,
   getChainId,
@@ -16,6 +16,14 @@ const deployDAO: DeployFunction = async function ({
 
   const lockerDeployment = await get('MultiERC20WeightedLocker');
   const stakingDeploymentAddress = await get('Staking');
+
+  if (!networkConfig.existingContracts?.gelatoAutomate) {
+    log(
+      'Gelato Automate address not found in network config, skipping deployment of automation dependent contracts',
+    );
+    log('----------');
+    return;
+  }
 
   const staleDepositLiquidatorDeployment = await deploy('StaleDepositLiquidator', {
     from: deployer,
@@ -41,9 +49,18 @@ const deployDAO: DeployFunction = async function ({
     await verifyContract(periodStarterDeployment.address, periodStarterDeployment.args!);
   }
 
-  await staking.grantRole(staking.PERIOD_STARTER(), periodStarterDeployment.address);
+  if (
+    !(await staking.hasRole(staking.PERIOD_STARTER(), periodStarterDeployment.address))
+  ) {
+    log('Granting period starter role to period starter contract');
+    await (
+      await staking.grantRole(staking.PERIOD_STARTER(), periodStarterDeployment.address)
+    ).wait(networkConfig.confirmations);
+  }
 
   log('-----Stale deposit liquidator and period starter deployed-----');
 };
 
-export default deployDAO;
+export default deployLiquidatorAndPeriodStarter;
+
+deployLiquidatorAndPeriodStarter.tags = ['liquidator', 'periodStarter'];

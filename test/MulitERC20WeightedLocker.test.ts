@@ -1,11 +1,18 @@
-import { loadFixture, time } from '@nomicfoundation/hardhat-network-helpers';
+import { time } from '@nomicfoundation/hardhat-network-helpers';
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { test } from 'mocha';
 import { prepareFullTestEnv } from '../utils/testHelpers/fixtures/prepareTestEnv';
 import { getPermitSignature } from '../utils/testHelpers/permit';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
-import { ERC20, ERC20Permit, GovernanceDividendTokenWrapper, IERC20, MintStaking, MultiERC20WeightedLocker, Staking } from '../typechain-types';
+import {
+  ERC20,
+  ERC20Permit,
+  GovernanceDividendTokenWrapper,
+  IERC20,
+  MultiERC20WeightedLocker,
+  Staking,
+} from '../typechain-types';
 
 describe('MultiERC20WeightedLocker contract', async () => {
   let micToken: ERC20;
@@ -18,7 +25,8 @@ describe('MultiERC20WeightedLocker contract', async () => {
   let staking: Staking;
 
   beforeEach(async () => {
-    ({micToken, locker, governanceToken, usdcToken, staking, micTokenPermit} = await prepareFullTestEnv());
+    ({ micToken, locker, governanceToken, usdcToken, staking, micTokenPermit } =
+      await prepareFullTestEnv());
     [user1, user2] = await ethers.getSigners();
   });
 
@@ -39,15 +47,15 @@ describe('MultiERC20WeightedLocker contract', async () => {
   test('should allow owner to add a new lockable asset', async () => {
     await locker.addLockableAsset({
       token: usdcToken.address,
-      baseRewardModifier: 10000,
       isEntitledToVote: false,
       isLPToken: false,
       lockPeriods: [{ durationInSeconds: 0, rewardModifier: 10000 }],
+      dividendTokenFromPair: ethers.constants.AddressZero,
+      priceOracle: ethers.constants.AddressZero,
     });
 
-    const lockableAsset = await locker.lockableAssets(2);
+    const lockableAsset = await locker.getLockableAsset(2);
     expect(lockableAsset.token).to.be.equal(usdcToken.address);
-    expect(lockableAsset.baseRewardModifier).to.be.equal(10000);
     expect(lockableAsset.isEntitledToVote).to.be.false;
     expect(lockableAsset.isLPToken).to.be.false;
   });
@@ -135,7 +143,7 @@ describe('MultiERC20WeightedLocker contract', async () => {
     await micToken.approve(locker.address, ethers.utils.parseEther('100'));
     await locker.stake(0, 0, ethers.utils.parseEther('100'), 1); // 90 days lockup period
 
-    await time.increase(time.duration.days(90));
+    await time.increase(time.duration.days(91));
 
     await locker.connect(user2).liquidateStaleDeposit(user1.address, 1);
 
@@ -210,10 +218,6 @@ describe('MultiERC20WeightedLocker contract', async () => {
   });
 
   test('should not need to have reward tokens on staking conctract upfront', async () => {
-    const { locker, staking, micToken, usdcToken } = await loadFixture(
-      prepareFullTestEnv,
-    );
-
     const REWARD_AMOUNT_IN_USDC = ethers.utils.parseUnits('10', 6);
 
     await staking.startNewRewardsPeriod(
@@ -226,11 +230,72 @@ describe('MultiERC20WeightedLocker contract', async () => {
 
     await time.increase(time.duration.days(1));
 
-    await expect(locker.withdraw(1)).to.be.revertedWith(
+    await expect(locker.withdrawStakeAndReward(1)).to.be.revertedWith(
       'ERC20: transfer amount exceeds balance',
     );
 
     await usdcToken.transfer(staking.address, REWARD_AMOUNT_IN_USDC);
-    await expect(locker.withdraw(1)).to.not.be.reverted;
+    await expect(locker.withdrawStakeAndReward(1)).to.not.be.reverted;
+  });
+
+  test('should allow to emergency withdraw with slashing before lock period ends', async () => {
+    await staking.startNewRewardsPeriod(
+      time.duration.days(1),
+      ethers.utils.parseUnits('10', 6),
+    );
+
+    const balanceBeforeStake = await micToken.balanceOf(user1.address);
+
+    await micToken.approve(locker.address, ethers.utils.parseEther('1'));
+    await locker.stake(0, 0, ethers.utils.parseEther('1'), 1); // 90 days
+
+    await time.increase(time.duration.days(1));
+
+    await locker.emergencyWithdraw(1);
+
+    const balanceAfterStake = await micToken.balanceOf(user1.address);
+
+    expect(balanceAfterStake).to.be.equal(
+      balanceBeforeStake.sub(ethers.utils.parseEther('0.05')),
+    );
+  });
+
+  test('should allow to withdraw slashed tokens by the contract owner', async () => {
+    await staking.startNewRewardsPeriod(
+      time.duration.days(1),
+      ethers.utils.parseUnits('10', 6),
+    );
+
+    await micToken.approve(locker.address, ethers.utils.parseEther('1'));
+    await locker.stake(0, 0, ethers.utils.parseEther('1'), 1); // 90 days
+
+    await time.increase(time.duration.days(1));
+
+    await locker.emergencyWithdraw(1);
+
+    const slashedTokensAmount = await locker.slashedTokensAmount(micToken.address);
+    expect(slashedTokensAmount).to.be.equal(ethers.utils.parseEther('0.05'));
+
+    const beforeWithdraw = await micToken.balanceOf(user1.address);
+
+    await locker.withdrawSlashedTokens(micToken.address, user1.address);
+
+    const afterWithdraw = await micToken.balanceOf(user1.address);
+
+    expect(afterWithdraw).to.be.equal(beforeWithdraw.add(slashedTokensAmount));
+  });
+
+  test('should allow to set the slashing penalty percentage', async () => {
+    await locker.setSlashingPenaltyPercentage(1000); // 10% in basis points
+
+    expect(await locker.slashingPenaltyPercentage()).to.be.equal(1000);
+
+    // more than 100% should revert
+    await expect(
+      locker.setSlashingPenaltyPercentage(1000000),
+    ).to.be.revertedWithCustomError(
+      locker,
+      'MultiERC20WeightedLocker__InvalidSlashingPenaltyPercentage',
+    );
   });
 });

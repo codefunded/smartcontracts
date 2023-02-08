@@ -1,4 +1,4 @@
-import { loadFixture, time } from '@nomicfoundation/hardhat-network-helpers';
+import { time } from '@nomicfoundation/hardhat-network-helpers';
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
 import { test } from 'mocha';
@@ -13,7 +13,7 @@ describe('PeriodStarter', () => {
   let staking: Staking;
 
   beforeEach(async () => {
-    ({periodStarter, usdcToken, staking} = await prepareFullTestEnv());
+    ({ periodStarter, usdcToken, staking } = await prepareFullTestEnv());
   });
 
   test('should allow to schedule the next period end date', async () => {
@@ -54,10 +54,7 @@ describe('PeriodStarter', () => {
     const { canExec, execPayload } = await periodStarter.canStartNewRewardsPeriod();
     expect(canExec).to.be.equal(true);
     expect(execPayload).to.be.equal(
-      staking.interface.encodeFunctionData('startNewRewardsPeriod', [
-        time.duration.days(90),
-        REWARD_AMOUNT_IN_USDC,
-      ]),
+      periodStarter.interface.encodeFunctionData('startNewRewardsPeriod'),
     );
   });
 
@@ -66,28 +63,28 @@ describe('PeriodStarter', () => {
     const receipt = await tx.wait();
 
     expect(receipt.events?.length).to.be.greaterThanOrEqual(1);
-    expect(
-      receipt.events?.some((event) => event.event === 'PeriodStarterTaskScheduled'),
-    ).to.be.equal(true);
-    expect(await periodStarter.periodSchedulerTaskId()).to.be.not.equal(
+    expect(receipt.events?.some((event) => event.event === 'TaskScheduled')).to.be.equal(
+      true,
+    );
+    expect(await periodStarter.automationTaskId()).to.be.not.equal(
       '0x0000000000000000000000000000000000000000000000000000000000000000',
     );
   });
 
   test('Should allow to cancel a task for constantly checking for period start', async () => {
     await periodStarter.createTask();
-    expect(await periodStarter.periodSchedulerTaskId()).to.be.not.equal(
+    expect(await periodStarter.automationTaskId()).to.be.not.equal(
       '0x0000000000000000000000000000000000000000000000000000000000000000',
     );
 
     const tx = await periodStarter.cancelTask();
     const receipt = await tx.wait();
-    expect(await periodStarter.periodSchedulerTaskId()).to.be.equal(
+    expect(await periodStarter.automationTaskId()).to.be.equal(
       '0x0000000000000000000000000000000000000000000000000000000000000000',
     );
     expect(receipt.events?.length).to.be.greaterThanOrEqual(1);
-    expect(
-      receipt.events?.some((event) => event.event === 'PeriodStarterTaskCancelled'),
-    ).to.be.equal(true);
+    expect(receipt.events?.some((event) => event.event === 'TaskCancelled')).to.be.equal(
+      true,
+    );
   });
 });

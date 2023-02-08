@@ -28,7 +28,7 @@ describe('NonTransferableToken contract', async () => {
       'NonTransferableToken__TransferIsNotAllowed',
     );
   });
-  
+
   test('should not allow to call transferFrom', async () => {
     const nonTransferableTokenFactory = await ethers.getContractFactory(
       'GovernanceDividendTokenWrapper',
@@ -63,6 +63,8 @@ describe('NonTransferableToken contract', async () => {
 
     await nonTransferableToken.burn(user1.address, ethers.utils.parseEther('99'));
 
-    await expect(await nonTransferableToken.balanceOf(user1.address)).to.eq(ethers.utils.parseEther('1'));
+    await expect(await nonTransferableToken.balanceOf(user1.address)).to.eq(
+      ethers.utils.parseEther('1'),
+    );
   });
 });

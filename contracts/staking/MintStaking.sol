@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/access/Ownable.sol';
@@ -50,7 +50,7 @@ contract MintStaking is IStaking, Ownable, ReentrancyGuard {
 
   modifier updateReward(address _account) {
     rewardPerTokenStored = rewardPerToken();
-    updatedAt = lastTimeRewardApplicable();
+    updatedAt = block.timestamp;
 
     if (_account != address(0)) {
       rewards[_account] = earnedReward(_account);
@@ -62,16 +62,12 @@ contract MintStaking is IStaking, Ownable, ReentrancyGuard {
 
   // ======== VIEW FUNCTIONS ========
 
-  function lastTimeRewardApplicable() public view returns (uint256) {
-    return block.timestamp;
-  }
-
   function rewardPerToken() public view returns (uint256) {
     if (totalSupply == 0) {
       return rewardPerTokenStored;
     }
 
-    return rewardPerTokenStored + rewardRate * (lastTimeRewardApplicable() - updatedAt);
+    return rewardPerTokenStored + rewardRate * (block.timestamp - updatedAt);
   }
 
   function earnedReward(address _account) public view override returns (uint256) {
@@ -84,12 +80,12 @@ contract MintStaking is IStaking, Ownable, ReentrancyGuard {
     return address(rewardsToken);
   }
 
-  // ======== USER FACING FUNCTIONS ========
+  // ======== EXTERNAL FUNCTIONS ========
 
   function stakeFor(
     address _user,
     uint256 _amount
-  ) public override updateReward(_user) nonReentrant {
+  ) external override updateReward(_user) nonReentrant onlyOwner {
     if (_amount == 0) {
       revert Staking__StakeAmountCannotBe0();
     }
@@ -103,7 +99,7 @@ contract MintStaking is IStaking, Ownable, ReentrancyGuard {
   function withdrawFor(
     address _user,
     uint256 _amount
-  ) external override updateReward(_user) nonReentrant {
+  ) external override updateReward(_user) nonReentrant onlyOwner {
     if (_amount == 0) {
       revert Staking__StakeAmountCannotBe0();
     }
@@ -116,7 +112,14 @@ contract MintStaking is IStaking, Ownable, ReentrancyGuard {
 
   function collectRewardsFor(
     address _user
-  ) external override updateReward(_user) nonReentrant returns (uint256 reward) {
+  )
+    external
+    override
+    updateReward(_user)
+    nonReentrant
+    onlyOwner
+    returns (uint256 reward)
+  {
     reward = rewards[_user];
     if (reward > 0) {
       rewards[_user] = 0;

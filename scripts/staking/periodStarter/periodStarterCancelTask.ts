@@ -1,12 +1,10 @@
 import { ethers } from 'hardhat';
-import { PeriodStarterTaskCancelledEvent } from '../../../typechain-types/contracts/staking/PeriodStarter';
+import { TaskCancelledEvent } from '../../../typechain-types/contracts/staking/StaleDepositLiquidator';
 
 const PERIOD_STARTER_ADDRESS = process.env.PERIOD_STARTER_ADDRESS;
 
-const isPeriodStarterTaskCancelledEvent = (
-  event: any,
-): event is PeriodStarterTaskCancelledEvent =>
-  event.event === 'PeriodStarterTaskCancelled';
+const isPeriodStarterTaskCancelledEvent = (event: any): event is TaskCancelledEvent =>
+  event.event === 'TaskCancelled';
 
 async function main() {
   if (PERIOD_STARTER_ADDRESS === undefined) {

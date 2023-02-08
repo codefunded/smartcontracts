@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 import '@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol';
 import '@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol';
@@ -31,6 +31,7 @@ contract GovernanceDividendTokenWrapper is
    */
   function mint(address to, uint256 amount) public override onlyOwner {
     _mint(to, amount);
+    _delegate(to, to);
   }
 
   /**

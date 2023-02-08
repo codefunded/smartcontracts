@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
@@ -26,33 +26,38 @@ contract MerkleClaimableAirdrop is Ownable, Pausable {
 
   bytes32 public immutable merkleRoot;
   IERC20 public immutable token;
+  IERC20 public immutable rewardToken;
 
   mapping(address => bool) public hasClaimed;
 
-  constructor(IERC20 _token, bytes32 _merkleRoot) {
+  constructor(IERC20 _token, IERC20 _rewardToken, bytes32 _merkleRoot) {
     token = _token;
+    rewardToken = _rewardToken;
     merkleRoot = _merkleRoot;
   }
 
   /// @notice Allows claiming tokens if address is part of a merkle tree
   /// @param _to address of claimee
   /// @param _amount of tokens owed to claimee
+  /// @param _rewardAmount amount of reward tokens owed to claimee
   /// @param _proof merkle proof to prove that the address and the amount are in tree
   function claim(
     address _to,
     uint256 _amount,
+    uint256 _rewardAmount,
     bytes32[] calldata _proof
   ) external whenNotPaused {
     if (hasClaimed[_to]) revert MerkleClaimableAirdrop__AlreadyClaimed();
 
     // Verify merkle proof, or revert if not in tree
-    bytes32 leaf = keccak256(abi.encodePacked(_to, _amount));
+    bytes32 leaf = keccak256(abi.encodePacked(_to, _amount, _rewardAmount));
     bool isValidLeaf = MerkleProof.verify(_proof, merkleRoot, leaf);
     if (!isValidLeaf) revert MerkleClaimableAirdrop__InvalidProof();
 
     hasClaimed[_to] = true;
 
     token.safeTransfer(_to, _amount);
+    rewardToken.safeTransfer(_to, _rewardAmount);
 
     emit Claimed(_to, _amount);
   }
@@ -63,6 +68,8 @@ contract MerkleClaimableAirdrop is Ownable, Pausable {
   function withdrawRemaining() external onlyOwner whenPaused {
     uint256 balance = token.balanceOf(address(this));
     token.safeTransfer(owner(), balance);
+    uint256 rewardsBalance = rewardToken.balanceOf(address(this));
+    rewardToken.safeTransfer(owner(), rewardsBalance);
   }
 
   /// @notice Is used by the team to finish the airdrop

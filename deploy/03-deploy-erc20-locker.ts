@@ -16,6 +16,7 @@ const deployERC20Locker: DeployFunction = async function ({
 
   const dividendToken = await get('DividendToken');
   const governanceToken = await get('GovernanceDividendTokenWrapper');
+  const timelockDeployment = await get('TimeLock');
 
   const multiERC20WeightedLockerDeployment = await deploy('MultiERC20WeightedLocker', {
     from: deployer,
@@ -25,10 +26,11 @@ const deployERC20Locker: DeployFunction = async function ({
       [
         {
           token: dividendToken.address,
-          baseRewardModifier: 10000,
           isEntitledToVote: true,
           isLPToken: false,
           lockPeriods: [{ durationInSeconds: 0, rewardModifier: 10000 }],
+          dividendTokenFromPair: ethers.constants.AddressZero,
+          priceOracle: ethers.constants.AddressZero,
         },
       ],
       governanceToken.address,
@@ -47,11 +49,22 @@ const deployERC20Locker: DeployFunction = async function ({
     'GovernanceDividendTokenWrapper',
     governanceToken.address,
   );
-  await governanceTokenContract.transferOwnership(
-    multiERC20WeightedLockerDeployment.address,
-  );
+  if (
+    (await governanceTokenContract.owner()) !== multiERC20WeightedLockerDeployment.address
+  ) {
+    log(
+      'Transferring ownership of GovernanceDividendTokenWrapper to MultiERC20WeightedLocker',
+    );
+    await (
+      await governanceTokenContract.transferOwnership(
+        multiERC20WeightedLockerDeployment.address,
+      )
+    ).wait(networkConfig.confirmations);
+  }
 
   log('-----ERC20 Locker deployed-----');
 };
 
 export default deployERC20Locker;
+
+deployERC20Locker.tags = ['locker'];

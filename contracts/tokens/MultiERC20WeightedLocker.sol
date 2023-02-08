@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
+import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol';
 import '@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol';
+import '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
 import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/utils/Counters.sol';
 import '../staking/interfaces/IStaking.sol';
@@ -11,7 +13,7 @@ import './interfaces/IMintableBurnableToken.sol';
 import '../dex/LiquidityValueCalculator.sol';
 import '../utils/BasisPointNumberMath.sol';
 import './NonTransferableToken.sol';
-import '../utils/Array.sol';
+import '../utils/ArrayUtils.sol';
 import '../utils/LockableAsset.sol';
 
 /**
@@ -39,12 +41,15 @@ struct Deposit {
 error MultiERC20WeightedLocker__InvalidLockableAssetIndex();
 error MultiERC20WeightedLocker__InvalidStakingContractIndex();
 error MultiERC20WeightedLocker__InvalidLockPeriodId();
-error MultiERC20WeightedLocker__TransferFailed();
+error MultiERC20WeightedLocker__InvalidRewardModifier();
 error MultiERC20WeightedLocker__DepositIsNotOngoing();
 error MultiERC20WeightedLocker__DepositIsStillLocked();
 error MultiERC20WeightedLocker__DepositIsNotLocked();
 error MultiERC20WeightedLocker__DepositsInThisAssetHaveBeenDisabled();
 error MultiERC20WeightedLocker__AddressAlreadyExists();
+error MultiERC20WeightedLocker__AssetDoesNotExists();
+error MultiERC20WeightedLocker__DepositCanBeWithdrawnNormally();
+error MultiERC20WeightedLocker__InvalidSlashingPenaltyPercentage();
 
 /**
  * @notice This contract is responsible for locking tokens, managing the deposits to staking contracts
@@ -62,8 +67,11 @@ contract MultiERC20WeightedLocker is
 {
   using Counters for Counters.Counter;
   using BasisPointNumberMath for uint256;
-  using Array for IStaking[];
-  using Array for LockableAsset[];
+  using ArrayUtils for IStaking[];
+  using ArrayUtils for LockableAsset[];
+  using SafeERC20 for IERC20;
+  using EnumerableSet for EnumerableSet.AddressSet;
+  using LiquidityValueCalculator for IUniswapV2TwapOracle;
 
   event DepositCreated(
     address indexed user,
@@ -80,9 +88,10 @@ contract MultiERC20WeightedLocker is
     address indexed user,
     address stakingContractAddress,
     address rewardAssetAddress,
-    uint256 amount
+    uint256 amount,
+    uint256 timestamp
   );
-  event DepositWithrdawn(
+  event DepositWithdrawn(
     address indexed user,
     uint256 indexed depositId,
     address lockedAssetAddress,
@@ -98,7 +107,11 @@ contract MultiERC20WeightedLocker is
     uint256 timestamp
   );
 
-  uint256 public constant ONE_DAY_IN_SECONDS = 86400;
+  /**
+   * @dev the percentage of the deposit that is slashed when the deposit is withdrawn
+   * in basis points e.g 500 = 5%
+   */
+  uint256 public slashingPenaltyPercentage = 500;
 
   /// @dev the deposit ID counter, each deposit has a unique ID
   Counters.Counter public currentDepositId;
@@ -107,19 +120,23 @@ contract MultiERC20WeightedLocker is
   /// @dev user address => deposit ID
   mapping(address => uint256[]) public userDepositIds;
   /// @dev user address => amount of deposits made by the user
-  mapping(address => uint256) public userDepositsAmount;
+  mapping(address => uint256) public userDepositsCount;
   /// @dev list of all addresses that have deposited
-  address[] public depositors;
-  /// @dev total amount of depositors
-  uint256 public depositorsAmount;
+  EnumerableSet.AddressSet private depositors;
+
   /// @dev list of lockable assets
-  LockableAsset[] public lockableAssets;
+  LockableAsset[] private lockableAssets;
   /// @dev lockable asset index => are deposits disabled for this asset
   mapping(uint256 => bool) public isDepositingDisabledForAsset;
-  /// @dev lockable asset index => amount locked
-  mapping(uint256 => uint256) public lockedAssetAmount;
+  /// @dev token address => amount slashed
+  mapping(address => uint256) public slashedTokensAmount;
+  /// @dev user address => token address => amount locked
+  mapping(address => mapping(address => uint256)) public userLockedAssetAmount;
 
+  /// @dev staking contracts list
   IStaking[] public stakingContracts;
+
+  /// @dev governance token address
   IMintableBurnableToken public immutable governanceToken;
 
   constructor(
@@ -129,7 +146,7 @@ contract MultiERC20WeightedLocker is
     IMintableBurnableToken _governanceToken
   ) ERC20(_name, _symbol) ERC20Permit(_name) {
     for (uint256 i = 0; i < _lockableAssets.length; i++) {
-      lockableAssets.push(_lockableAssets[i]);
+      addLockableAsset(_lockableAssets[i]);
     }
     governanceToken = _governanceToken;
     currentDepositId.increment(); // so that the first deposit ID is 1
@@ -144,8 +161,9 @@ contract MultiERC20WeightedLocker is
    */
   function addStakingContract(IStaking _stakingContract) external onlyOwner {
     int256 existingElementIndex = stakingContracts.findElementInArray(_stakingContract);
-    if (existingElementIndex >= 0)
+    if (existingElementIndex >= 0) {
       revert MultiERC20WeightedLocker__AddressAlreadyExists();
+    }
     stakingContracts.push(_stakingContract);
   }
 
@@ -154,31 +172,87 @@ contract MultiERC20WeightedLocker is
    * This function reverts if the lockable asset passed as argument is already added.
    * @param _lockableAsset The lockable asset to be added.
    */
-  function addLockableAsset(LockableAsset memory _lockableAsset) external onlyOwner {
+  function addLockableAsset(LockableAsset memory _lockableAsset) public onlyOwner {
     int256 existingElementIndex = lockableAssets.findElementInArray(_lockableAsset);
-    if (existingElementIndex >= 0)
+    if (existingElementIndex >= 0) {
       revert MultiERC20WeightedLocker__AddressAlreadyExists();
+    }
+    _addLockableAsset(_lockableAsset);
+  }
+
+  function _addLockableAsset(LockableAsset memory _lockableAsset) internal {
+    for (uint i = 0; i < _lockableAsset.lockPeriods.length; i++) {
+      if (
+        _lockableAsset.lockPeriods[i].rewardModifier < BasisPointNumberMath.BASIS_POINT
+      ) {
+        revert MultiERC20WeightedLocker__InvalidRewardModifier();
+      }
+    }
     lockableAssets.push(_lockableAsset);
   }
 
   /**
-   * @dev Disables deposits for a lockable asset.
+   * @notice Updates the existing lockable asset by marking it as disabled for deposits and
+   * adding a new lockable asset with modified properties.
+   * @dev Because addLockableAsset reverts on duplicate lockable assets, this function can
+   * be used to update properties of an existing lockable asset like the reward modifiers and lock periods.
+   * @param _lockableAsset The lockable asset to be added.
+   */
+  function updateLockableAsset(LockableAsset memory _lockableAsset) public onlyOwner {
+    int256 existingElementIndex = lockableAssets.findElementInArray(_lockableAsset);
+    if (existingElementIndex == -1) {
+      revert MultiERC20WeightedLocker__AssetDoesNotExists();
+    }
+
+    disableDepositsForAsset(uint256(existingElementIndex));
+
+    _addLockableAsset(_lockableAsset);
+  }
+
+  /**
+   * @notice Disables deposits for a lockable asset.
    * @param _lockableAssetIndex The index of the lockable asset.
    */
-  function disableDepositsForAsset(uint256 _lockableAssetIndex) external onlyOwner {
-    if (_lockableAssetIndex >= lockableAssets.length)
+  function disableDepositsForAsset(uint256 _lockableAssetIndex) public onlyOwner {
+    if (_lockableAssetIndex >= lockableAssets.length) {
       revert MultiERC20WeightedLocker__InvalidLockableAssetIndex();
+    }
     isDepositingDisabledForAsset[_lockableAssetIndex] = true;
   }
 
   /**
-   * @dev Enables deposits for a lockable asset.
+   * @notice Enables deposits for a lockable asset.
    * @param _lockableAssetIndex The index of the lockable asset.
    */
   function enableDepositsForAsset(uint256 _lockableAssetIndex) external onlyOwner {
-    if (_lockableAssetIndex >= lockableAssets.length)
+    if (_lockableAssetIndex >= lockableAssets.length) {
       revert MultiERC20WeightedLocker__InvalidLockableAssetIndex();
+    }
     isDepositingDisabledForAsset[_lockableAssetIndex] = false;
+  }
+
+  /**
+   * @notice Withdraws the slashed tokens from the contract.
+   * @param _token The address of the token to be withdrawn.
+   * @param _benficiary The address to which the tokens will be transferred.
+   */
+  function withdrawSlashedTokens(address _token, address _benficiary) external onlyOwner {
+    uint256 amount = slashedTokensAmount[_token];
+    slashedTokensAmount[_token] = 0;
+    IERC20(_token).safeTransfer(_benficiary, amount);
+  }
+
+  /**
+   * @notice Sets the slashing penalty percentage.
+   * @param _slashingPenaltyPercentage The percentage of the stake that will be slashed.
+   */
+  function setSlashingPenaltyPercentage(
+    uint256 _slashingPenaltyPercentage
+  ) external onlyOwner {
+    if (_slashingPenaltyPercentage > BasisPointNumberMath.BASIS_POINT) {
+      revert MultiERC20WeightedLocker__InvalidSlashingPenaltyPercentage();
+    }
+    slashingPenaltyPercentage = _slashingPenaltyPercentage;
   }
 
   // ======== VIEW FUNCTIONS ========
@@ -188,6 +262,34 @@ contract MultiERC20WeightedLocker is
     uint256 depositId
   ) external view returns (Deposit memory) {
     return userDeposits[depositor][depositId];
+  }
+
+  function getDepositorsCount() external view returns (uint256) {
+    return depositors.length();
+  }
+
+  function getDepositor(uint256 index) external view returns (address) {
+    return depositors.at(index);
+  }
+
+  function isDepositor(address account) external view returns (bool) {
+    return depositors.contains(account);
+  }
+
+  function getLockableAsset(uint256 index) external view returns (LockableAsset memory) {
+    return lockableAssets[index];
+  }
+
+  function getLockableAssetsCount() external view returns (uint256) {
+    return lockableAssets.length;
+  }
+
+  function getStakingContract(uint256 index) external view returns (IStaking) {
+    return stakingContracts[index];
+  }
+
+  function getStakingContractCount() external view returns (uint256) {
+    return stakingContracts.length;
   }
 
   // ======== PUBLIC FUNCTIONS ========
@@ -222,34 +324,22 @@ contract MultiERC20WeightedLocker is
     uint256 initialDeposit = _amount;
 
     if (lockableAsset.isLPToken) {
-      (uint256 lockedTokenAmount, ) = LiquidityValueCalculator.computeLiquidityShareValue(
-        lockableAsset.token,
-        _amount,
-        lockableAsset.token
+      (uint256 lockedTokenAmount, ) = LiquidityValueCalculator.calculateLiquidityValue(
+        IUniswapV2TwapOracle(lockableAsset.priceOracle),
+        lockableAsset.dividendTokenFromPair,
+        _amount
       );
-      // This amount is doubled to make up to user that they had to deposit double the worth because of how AMM exchanges work.
-      // User had to deposit the same amount of value in both tokens in order to deposit to LP Pool.
-      // So if user 1 deposited 1000 tokens X directly and the second user deposited LP tokens representing a share of
-      // 1000 tokens X and any amount of tokens Y, the second user should get twice as much rewards as the first user because
-      // they effectively deposited twice as much of value.
-      _amount = lockedTokenAmount * 2;
+      _amount = lockedTokenAmount;
     }
 
-    if (
-      !IERC20(lockableAsset.token).transferFrom(
-        _msgSender(),
-        address(this),
-        initialDeposit
-      )
-    ) {
-      revert MultiERC20WeightedLocker__TransferFailed();
-    }
+    IERC20(lockableAsset.token).safeTransferFrom(
+      _msgSender(),
+      address(this),
+      initialDeposit
+    );
 
     mintedAmount = _amount.applyModifierInBasisPoint(
-      _calculateRewardModifier(
-        lockableAsset.baseRewardModifier,
-        lockableAsset.lockPeriods[lockPeriodId].rewardModifier
-      )
+      lockableAsset.lockPeriods[lockPeriodId].rewardModifier
     );
     _mint(_msgSender(), mintedAmount);
     if (lockableAsset.isEntitledToVote) {
@@ -315,23 +405,60 @@ contract MultiERC20WeightedLocker is
     }
 
     LockableAsset memory lockableAsset = lockableAssets[deposit.lockableAssetIndex];
-    lockedAssetAmount[deposit.lockableAssetIndex] -= deposit.amountLocked;
 
     IStaking stakingContract = stakingContracts[deposit.stakingContractIndex];
 
     _removeDeposit(lockableAsset, stakingContract, deposit, _depositId, _msgSender());
 
-    collectRewards(deposit.stakingContractIndex);
+    IERC20(lockableAsset.token).safeTransfer(_msgSender(), deposit.amountLocked);
 
-    bool isWithdrawalSuccess = IERC20(lockableAsset.token).transfer(
+    emit DepositWithdrawn(
       _msgSender(),
-      deposit.amountLocked
+      _depositId,
+      lockableAsset.token,
+      address(stakingContract),
+      block.timestamp
     );
-    if (!isWithdrawalSuccess) {
-      revert MultiERC20WeightedLocker__TransferFailed();
+  }
+
+  function withdrawStakeAndReward(uint256 _depositId) public returns (uint256 reward) {
+    withdraw(_depositId);
+
+    Deposit memory deposit = userDeposits[_msgSender()][_depositId];
+
+    return collectRewards(deposit.stakingContractIndex);
+  }
+
+  /**
+   * @notice Withdraw the locked asset even when the lock period is still active.
+   * This action results in a loss of rewards.
+   */
+  function emergencyWithdraw(uint256 _depositId) public {
+    Deposit memory deposit = userDeposits[_msgSender()][_depositId];
+    if (!deposit.isOngoing) {
+      revert MultiERC20WeightedLocker__DepositIsNotOngoing();
+    }
+    if (deposit.unlockAvailibleTimestamp < block.timestamp) {
+      revert MultiERC20WeightedLocker__DepositCanBeWithdrawnNormally();
     }
 
-    emit DepositWithrdawn(
+    LockableAsset memory lockableAsset = lockableAssets[deposit.lockableAssetIndex];
+
+    IStaking stakingContract = stakingContracts[deposit.stakingContractIndex];
+
+    _removeDeposit(lockableAsset, stakingContract, deposit, _depositId, _msgSender());
+
+    uint256 slashedAmount = deposit.amountLocked.applyModifierInBasisPoint(
+      slashingPenaltyPercentage
+    );
+    slashedTokensAmount[lockableAsset.token] += slashedAmount;
+
+    IERC20(lockableAsset.token).safeTransfer(
+      _msgSender(),
+      deposit.amountLocked - slashedAmount
+    );
+
+    emit DepositWithdrawn(
       _msgSender(),
       _depositId,
       lockableAsset.token,
@@ -353,7 +480,8 @@ contract MultiERC20WeightedLocker is
       _msgSender(),
       address(stakingContract),
       stakingContract.getRewardToken(),
-      reward
+      reward,
+      block.timestamp
     );
   }
 
@@ -393,13 +521,7 @@ contract MultiERC20WeightedLocker is
 
     _removeDeposit(lockableAsset, stakingContract, deposit, _depositId, _user);
 
-    bool isTransferSuccess = IERC20(lockableAsset.token).transfer(
-      _user,
-      deposit.amountLocked
-    );
-    if (!isTransferSuccess) {
-      revert MultiERC20WeightedLocker__TransferFailed();
-    }
+    IERC20(lockableAsset.token).safeTransfer(_user, deposit.amountLocked);
 
     emit DepositLiquidated(
       _user,
@@ -420,21 +542,18 @@ contract MultiERC20WeightedLocker is
     uint256 _depositId,
     address _user
   ) private {
-    _stakingContract.withdrawFor(_user, _deposit.amountLocked);
-
+    userLockedAssetAmount[_user][
+      lockableAssets[_deposit.lockableAssetIndex].token
+    ] -= _deposit.amountLocked;
     _burn(_user, _deposit.amountMinted);
+
     if (_lockableAsset.isEntitledToVote) {
       governanceToken.burn(_user, _deposit.amountMinted);
     }
 
-    userDeposits[_user][_depositId].isOngoing = false;
-  }
+    _stakingContract.withdrawFor(_user, _deposit.amountMinted);
 
-  function _calculateRewardModifier(
-    uint256 baseRewardModifier,
-    uint256 lockRewardModifier
-  ) internal pure returns (uint256 rewardModifier) {
-    rewardModifier = baseRewardModifier.applyModifierInBasisPoint(lockRewardModifier);
+    userDeposits[_user][_depositId].isOngoing = false;
   }
 
   function _addDeposit(
@@ -447,9 +566,11 @@ contract MultiERC20WeightedLocker is
     uint256 depositTimestamp = block.timestamp;
     uint256 unlockAvailibleTimestamp = depositTimestamp + lockPeriod.durationInSeconds;
 
-    lockedAssetAmount[_lockableAssetIndex] += _amount;
+    userLockedAssetAmount[_msgSender()][
+      lockableAssets[_lockableAssetIndex].token
+    ] += _amount;
 
-    depositId = _getDepositId();
+    depositId = _getAndIncrementDepositId();
     userDeposits[_msgSender()][depositId] = Deposit(
       _lockableAssetIndex,
       _stakingContractIndex,
@@ -462,12 +583,11 @@ contract MultiERC20WeightedLocker is
     );
 
     userDepositIds[_msgSender()].push(depositId);
-    userDepositsAmount[_msgSender()]++;
-    depositors.push(_msgSender());
-    depositorsAmount++;
+    userDepositsCount[_msgSender()]++;
+    depositors.add(_msgSender());
   }
 
-  function _getDepositId() internal returns (uint256 depositId) {
+  function _getAndIncrementDepositId() internal returns (uint256 depositId) {
     depositId = currentDepositId.current();
     currentDepositId.increment();
   }

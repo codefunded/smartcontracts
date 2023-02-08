@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity >=0.6.6;
 
 contract NativeTokenReceiver {
   event ReceivedNativeToken(address indexed sender, uint256 value);

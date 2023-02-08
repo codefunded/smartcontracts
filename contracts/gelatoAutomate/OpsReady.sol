@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import './OpsTypes.sol';
 import '../utils/NativeTokenReceiver.sol';
+import './GelatoAutomation.sol';
 
 /**
  * @dev Inherit this contract to allow your smart contract to
@@ -11,7 +12,7 @@ import '../utils/NativeTokenReceiver.sol';
  * - Have call restrictions for functions to be automated.
  */
 // solhint-disable private-vars-leading-underscore
-abstract contract OpsReady is NativeTokenReceiver {
+abstract contract OpsReady is NativeTokenReceiver, GelatoAutomation {
   IOps public immutable ops;
   address public immutable dedicatedMsgSender;
   address private immutable _gelato;
@@ -59,10 +60,49 @@ abstract contract OpsReady is NativeTokenReceiver {
     (fee, feeToken) = ops.getFeeDetails();
   }
 
+  function _createTask(
+    address _resolverAddress,
+    bytes memory _resolverData,
+    address execAddress,
+    bytes memory execDataOrSelector
+  ) internal {
+    if (automationTaskId != bytes32('')) {
+      revert('createTask: Task already scheduled');
+    }
+    ModuleData memory moduleData = ModuleData({
+      modules: new Module[](1),
+      args: new bytes[](1)
+    });
+    moduleData.modules[0] = Module.RESOLVER;
+    moduleData.args[0] = _resolverModuleArg(_resolverAddress, _resolverData);
+
+    automationTaskId = ops.createTask(
+      execAddress,
+      execDataOrSelector,
+      moduleData,
+      NATIVE_TOKEN
+    );
+
+    emit TaskScheduled(block.timestamp, automationTaskId);
+  }
+
+  function _cancelTask() internal {
+    ops.cancelTask(automationTaskId);
+    emit TaskCancelled(block.timestamp, automationTaskId);
+    automationTaskId = bytes32('');
+  }
+
   function _resolverModuleArg(
     address _resolverAddress,
     bytes memory _resolverData
   ) internal pure returns (bytes memory) {
     return abi.encode(_resolverAddress, _resolverData);
+  }
+
+  function _timeModuleArg(
+    uint256 _startTime,
+    uint256 _interval
+  ) internal pure returns (bytes memory) {
+    return abi.encode(uint128(_startTime), uint128(_interval));
   }
 }

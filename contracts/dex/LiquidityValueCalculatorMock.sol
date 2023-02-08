@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
-import './LiquidityValueCalculator.sol';
+import {LiquidityValueCalculator, IUniswapV2TwapOracle} from './LiquidityValueCalculator.sol';
 
 contract LiquidityValueCalculatorMock {
-  /// @dev Computes the value of a liquidity share in terms of the underlying tokens on a Uniswap V2 pair.
-  function computeLiquidityShareValue(
-    address _dexPair,
-    uint _amountOfLPTokens,
-    address _tokenA
+  /// @dev Computes the value for a given liquidity share in terms of the underlying tokens on a Uniswap V2 pair.
+  function calculateLiquidityValue(
+    IUniswapV2TwapOracle _oracle,
+    address _tokenA,
+    uint _amountOfLPTokens
   ) public view returns (uint tokenAAmount, uint tokenBAmount) {
     return
-      LiquidityValueCalculator.computeLiquidityShareValue(
-        _dexPair,
-        _amountOfLPTokens,
-        _tokenA
+      LiquidityValueCalculator.calculateLiquidityValue(
+        _oracle,
+        _tokenA,
+        _amountOfLPTokens
       );
   }
 }

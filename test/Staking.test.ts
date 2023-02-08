@@ -1,4 +1,4 @@
-import { loadFixture, time } from '@nomicfoundation/hardhat-network-helpers';
+import { time } from '@nomicfoundation/hardhat-network-helpers';
 import { expect } from 'chai';
 import { BigNumber } from 'ethers';
 import { ethers } from 'hardhat';
@@ -19,7 +19,7 @@ describe('Staking contract', async () => {
   let micToken: ERC20;
 
   beforeEach(async () => {
-    ({usdcToken, stakingContract, micToken} = await prepareSimpleTestEnv());
+    ({ usdcToken, stakingContract, micToken } = await prepareSimpleTestEnv());
     [user1, user2] = await ethers.getSigners();
   });
 
@@ -282,6 +282,112 @@ describe('Staking contract', async () => {
     expect(profit).to.be.approximately(
       REWARD_AMOUNT_IN_USDC.mul(2).toNumber(),
       REWARD_AMOUNT_IN_USDC.toNumber() * 0.001,
+    );
+  });
+
+  test('should not allow to start staking period before the previous one finishes', async () => {
+    await stakingContract.startNewRewardsPeriod(
+      ONE_DAY_IN_SECONDS,
+      REWARD_AMOUNT_IN_USDC,
+    );
+
+    await expect(
+      stakingContract.startNewRewardsPeriod(ONE_DAY_IN_SECONDS, REWARD_AMOUNT_IN_USDC),
+    ).to.be.revertedWithCustomError(stakingContract, 'Staking__RewardsPeriodNotFinished');
+
+    await time.increase(ONE_DAY_IN_SECONDS + 100);
+
+    await stakingContract.startNewRewardsPeriod(
+      ONE_DAY_IN_SECONDS,
+      REWARD_AMOUNT_IN_USDC,
+    );
+  });
+
+  test('should keep track of collected rewards by users in the current period', async () => {
+    await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
+    await stakingContract.startNewRewardsPeriod(
+      ONE_DAY_IN_SECONDS,
+      REWARD_AMOUNT_IN_USDC,
+    );
+
+    await micToken.approve(stakingContract.address, ethers.utils.parseEther('100'));
+    await stakingContract.stakeFor(user2.address, ethers.utils.parseEther('100'));
+
+    await time.increase(ONE_DAY_IN_SECONDS + 100);
+
+    await stakingContract.collectRewardsFor(user2.address);
+
+    const currentPeriodRewards = await stakingContract.collectedRewardsInCurrentPeriod();
+    expect(currentPeriodRewards).to.be.approximately(
+      ethers.utils.parseUnits('100', 6),
+      REWARD_AMOUNT_IN_USDC.toNumber() * 0.001,
+    );
+
+    await usdcToken.transfer(stakingContract.address, REWARD_AMOUNT_IN_USDC);
+    await stakingContract.startNewRewardsPeriod(
+      ONE_DAY_IN_SECONDS,
+      REWARD_AMOUNT_IN_USDC,
+    );
+
+    const currentPeriodRewardsInNewPeriod =
+      await stakingContract.collectedRewardsInCurrentPeriod();
+    expect(currentPeriodRewardsInNewPeriod).to.be.equal(0);
+  });
+
+  test('access to stake, withdraw and collect functions should be restricted', async () => {
+    await stakingContract.startNewRewardsPeriod(
+      ONE_DAY_IN_SECONDS,
+      REWARD_AMOUNT_IN_USDC,
+    );
+
+    const accessControlErrorRegex = /AccessControl:.*/;
+
+    await micToken
+      .connect(user2)
+      .approve(stakingContract.address, ethers.utils.parseEther('100'));
+    await expect(
+      stakingContract
+        .connect(user2)
+        .stakeFor(user2.address, ethers.utils.parseEther('100')),
+    ).to.be.revertedWith(accessControlErrorRegex);
+
+    await expect(
+      stakingContract.connect(user2).collectRewardsFor(user2.address),
+    ).to.be.revertedWith(accessControlErrorRegex);
+
+    await expect(
+      stakingContract
+        .connect(user2)
+        .withdrawFor(user2.address, ethers.utils.parseEther('100')),
+    ).to.be.revertedWith(accessControlErrorRegex);
+  });
+
+  test('should not allow to create a rewards period that is longer than a year', async () => {
+    await expect(
+      stakingContract.startNewRewardsPeriod(
+        time.duration.years(2),
+        REWARD_AMOUNT_IN_USDC,
+      ),
+    ).to.be.revertedWithCustomError(
+      stakingContract,
+      'Staking__DurationExceedsMaxPeriodDuration',
+    );
+  });
+
+  test('should allow to change the maximum reward period length', async () => {
+    await expect(
+      stakingContract.connect(user2).setMaxPeriodDuration(time.duration.years(3)),
+    ).to.be.reverted;
+
+    await stakingContract.setMaxPeriodDuration(time.duration.years(3));
+    await expect(
+      stakingContract.startNewRewardsPeriod(
+        time.duration.years(2),
+        REWARD_AMOUNT_IN_USDC,
+      ),
+    ).to.not.be.revertedWithCustomError(
+      stakingContract,
+      'Staking__DurationExceedsMaxPeriodDuration',
     );
   });
 });

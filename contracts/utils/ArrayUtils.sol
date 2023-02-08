@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 import '../staking/interfaces/IStaking.sol';
 import './LockableAsset.sol';
 
 /// @notice Library to use with arrays
-library Array {
+library ArrayUtils {
   function findElementInArray(
     IStaking[] storage arr,
     IStaking _element

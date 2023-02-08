@@ -1,12 +1,10 @@
 import { ethers } from 'hardhat';
-import { StaleDepositLiquidatorTaskCancelledEvent } from '../../../typechain-types/contracts/staking/StaleDepositLiquidator';
+import { TaskCancelledEvent } from '../../../typechain-types/contracts/staking/StaleDepositLiquidator';
 
 const LIQUIDATOR_ADDRESS = process.env.LIQUIDATOR_ADDRESS;
 
-const isLiquidatorTaskCancelledEvent = (
-  event: any,
-): event is StaleDepositLiquidatorTaskCancelledEvent =>
-  event.event === 'StaleDepositLiquidatorTaskCancelled';
+const isLiquidatorTaskCancelledEvent = (event: any): event is TaskCancelledEvent =>
+  event.event === 'TaskCancelled';
 
 async function main() {
   if (LIQUIDATOR_ADDRESS === undefined) {

@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.16;
+pragma solidity 0.8.17;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import '@openzeppelin/contracts/access/AccessControl.sol';
 import '@openzeppelin/contracts/security/ReentrancyGuard.sol';
-import '@openzeppelin/contracts/utils/math/Math.sol';
 import '../staking/interfaces/IStaking.sol';
 
 error Staking__StakeAmountCannotBe0();
 error Staking__WithdrawAmountCannotBe0();
-error Staking__RewardsDurationNotFinished();
+error Staking__RewardsPeriodNotFinished();
 error Staking__RewardRateIs0();
 error Staking__WithdrawAmountBiggerThanStakedAmount();
-error Staking__TransferFailed();
+error Staking__EmergencyWithdrawNotPossibleAfterRewardsPeriod();
+error Staking__DurationExceedsMaxPeriodDuration();
 
 /**
  * @notice Staking contract that is giving rewards in another ERC20 token that is not owned by the project creator
@@ -23,9 +24,12 @@ error Staking__TransferFailed();
  * token.
  */
 contract Staking is IStaking, AccessControl, ReentrancyGuard {
+  using SafeERC20 for IERC20;
+
   event StakeDeposited(address indexed staker, uint256 amount, uint256 timestamp);
   event StakeWithdrawn(address indexed staker, uint256 amount, uint256 timestamp);
   event RewardsCollected(address indexed staker, uint256 amount, uint256 timestamp);
+  event RewardsSlashed(address indexed staker, uint256 amount, uint256 timestamp);
   event RewardsPeriodStarted(
     uint256 startTimestamp,
     uint256 duration,
@@ -54,6 +58,8 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
   mapping(address => uint256) public userRewardPerTokenPaid;
   /// @dev User address => rewards to be claimed
   mapping(address => uint256) public rewards;
+  /// @dev maximum duration of rewards period
+  uint256 public maxPeriodDuration = 365 days;
 
   /// @notice Amount of rewards to be paid out in current period
   uint256 public currentPeriodRewardsAmount;
@@ -88,7 +94,8 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
   // ======== VIEW FUNCTIONS ========
 
   function lastTimeRewardApplicable() public view returns (uint256) {
-    return Math.min(finishAt, block.timestamp);
+    // equivalent of Math.min(finishAt, blockTimestamp); for gas saving purposes
+    return finishAt < block.timestamp ? finishAt : block.timestamp;
   }
 
   function rewardPerToken() public view returns (uint256) {
@@ -117,7 +124,7 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
   function stakeFor(
     address _user,
     uint256 _amount
-  ) public override updateReward(_user) nonReentrant onlyRole(LOCKER_ROLE) {
+  ) public override updateReward(_user) onlyRole(LOCKER_ROLE) {
     if (_amount == 0) {
       revert Staking__StakeAmountCannotBe0();
     }
@@ -141,11 +148,9 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
     reward = rewards[_user];
     if (reward > 0) {
       rewards[_user] = 0;
-      bool isTransferSuccess = rewardsToken.transfer(_user, reward);
-      if (!isTransferSuccess) {
-        revert Staking__TransferFailed();
-      }
+      rewardsToken.safeTransfer(_user, reward);
     }
+    collectedRewardsInCurrentPeriod += reward;
 
     emit RewardsCollected(_msgSender(), reward, block.timestamp);
   }
@@ -153,7 +158,7 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
   function withdrawFor(
     address user,
     uint256 _amount
-  ) external override updateReward(user) nonReentrant {
+  ) external override updateReward(user) onlyRole(LOCKER_ROLE) {
     if (_amount == 0) {
       revert Staking__WithdrawAmountCannotBe0();
     }
@@ -175,6 +180,9 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
     uint256 _duration,
     uint256 _rewardsAmount
   ) external onlyRole(PERIOD_STARTER) updateReward(address(0)) {
+    if (finishAt >= block.timestamp) {
+      revert Staking__RewardsPeriodNotFinished();
+    }
     _setRewardsDuration(_duration);
     _notifyRewardAmount(_rewardsAmount);
 
@@ -188,10 +196,9 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
   }
 
   function _setRewardsDuration(uint256 _duration) internal {
-    if (finishAt >= block.timestamp) {
-      revert Staking__RewardsDurationNotFinished();
+    if (_duration > maxPeriodDuration) {
+      revert Staking__DurationExceedsMaxPeriodDuration();
     }
-
     duration = _duration;
   }
 
@@ -199,7 +206,7 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
     if (block.timestamp >= finishAt) {
       rewardRate = _amount / duration;
     } else {
-      uint256 remainingRewards = (finishAt - block.timestamp) * rewardRate;
+      uint remainingRewards = (finishAt - block.timestamp) * rewardRate;
       rewardRate = (_amount + remainingRewards) / duration;
     }
 
@@ -211,5 +218,13 @@ contract Staking is IStaking, AccessControl, ReentrancyGuard {
     updatedAt = block.timestamp;
     currentPeriodRewardsAmount = _amount;
     collectedRewardsInCurrentPeriod = 0;
+  }
+
+  /// @notice Sets the maximum duration of rewards period
+  /// @dev This function can be called only by the owner
+  function setMaxPeriodDuration(
+    uint256 _maxPeriodDuration
+  ) external onlyRole(PERIOD_STARTER) {
+    maxPeriodDuration = _maxPeriodDuration;
   }
 }
