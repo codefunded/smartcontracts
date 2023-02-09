@@ -43,10 +43,14 @@ const deployDexPair: DeployFunction = async function ({
   });
   log(`Pair deployed to DEX at address: ${pairAddress}`);
 
-  await save('DexPair', {
-    abi: getAbiForPair(),
-    address: pairAddress,
-  });
+  try {
+    await get('DexPair');
+  } catch (e) {
+    await save('DexPair', {
+      abi: getAbiForPair(),
+      address: pairAddress,
+    });
+  }
 
   const dividendToken = await ethers.getContractAt(
     'IERC20',

@@ -47,16 +47,16 @@ const deployAirdrop: DeployFunction = async function ({
     ).wait(networkConfig.confirmations);
   }
 
-  // const usdc = await ethers.getContractAt('IERC20', usdcAddress);
-  // if ((await usdc.balanceOf(airdropDeployment.address)).eq(0)) {
-  //   log('Transferring rewards tokens to airdrop contract');
-  //   await (
-  //     await usdc.transfer(
-  //       airdropDeployment.address,
-  //       ethers.utils.parseEther('10'), // amount claimable by users
-  //     )
-  //   ).wait(networkConfig.confirmations);
-  // }
+  const usdc = await ethers.getContractAt('IERC20', usdcAddress);
+  if ((await usdc.balanceOf(airdropDeployment.address)).eq(0)) {
+    log('Transferring rewards tokens to airdrop contract');
+    await (
+      await usdc.transfer(
+        airdropDeployment.address,
+        ethers.utils.parseUnits('100', 6), // amount claimable by users
+      )
+    ).wait(networkConfig.confirmations);
+  }
 
   if ((await airdrop.owner()) === deployer) {
     log('Transferring ownership of airdrop contract to timelock');

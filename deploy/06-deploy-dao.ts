@@ -47,7 +47,6 @@ const deployDAO: DeployFunction = async function ({
 
   const executorRole = await timelockContract.EXECUTOR_ROLE();
   const proposerRole = await timelockContract.PROPOSER_ROLE();
-  const adminRole = await timelockContract.TIMELOCK_ADMIN_ROLE();
 
   const hasProposerRole = await timelockContract.hasRole(
     proposerRole,

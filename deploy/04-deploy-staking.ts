@@ -102,11 +102,6 @@ const deployStaking: DeployFunction = async function ({
     ).wait(networkConfig.confirmations);
   }
 
-  if ((await locker.owner()) === deployer) {
-    log('Transferring ownership of MultiERC20WeightedLocker to TimeLock');
-    await locker.transferOwnership(timelockDeployment.address);
-  }
-
   log('-----Staking contracts deployed-----');
 };
 

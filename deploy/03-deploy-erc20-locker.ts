@@ -16,7 +16,6 @@ const deployERC20Locker: DeployFunction = async function ({
 
   const dividendToken = await get('DividendToken');
   const governanceToken = await get('GovernanceDividendTokenWrapper');
-  const timelockDeployment = await get('TimeLock');
 
   const multiERC20WeightedLockerDeployment = await deploy('MultiERC20WeightedLocker', {
     from: deployer,
