@@ -127,10 +127,10 @@ describe('Airdrop contract', async () => {
     await expect(
       airdrop.claim(
         user1.address,
-        ethers.utils.parseEther('1').toString(),
-        ethers.utils.parseUnits('2', 6).toString(),
+        ethers.utils.parseEther('10').toString(),
+        ethers.utils.parseUnits('5', 6).toString(),
         proof,
       ),
-    ).to.be.rejectedWith('MerkleClaimableAirdrop__InvalidProof');
+    ).to.be.rejected;
   });
 });

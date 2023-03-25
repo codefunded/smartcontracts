@@ -3,7 +3,6 @@ import { DeployFunction } from 'hardhat-deploy/types';
 import { getNetworkConfig } from '../utils/networkConfigs';
 import { verifyContract } from '../utils/verifyContract';
 import { ethers } from 'hardhat';
-import { time } from '@nomicfoundation/hardhat-network-helpers';
 
 const deployVestingWallet: DeployFunction = async function ({
   getNamedAccounts,
@@ -21,13 +20,9 @@ const deployVestingWallet: DeployFunction = async function ({
     dividendTokenDeployment.address,
   );
 
-  const vestingWalletDeployment = await deploy('TeamVestingWallet', {
+  const vestingWalletDeployment = await deploy('StepVestingWallet', {
     from: deployer,
-    args: [
-      networkConfig.TEAM_ADDRESS,
-      networkConfig.VESTING_START_TIMESTAMP,
-      time.duration.weeks(4),
-    ],
+    args: [dividendToken.address],
     waitConfirmations: networkConfig.confirmations,
     log: true,
   });
@@ -42,6 +37,18 @@ const deployVestingWallet: DeployFunction = async function ({
         vestingWalletDeployment.address,
         ethers.utils.parseEther('5000000'),
       )
+    ).wait(networkConfig.confirmations);
+  }
+
+  const vestingWallet = await ethers.getContractAt(
+    'StepVestingWallet',
+    vestingWalletDeployment.address,
+  );
+  const beneficiaries = await vestingWallet.getBeneficiaries();
+  if (beneficiaries.addresses.length === 0) {
+    log('Adding beneficiaries to vesting wallet');
+    await (
+      await vestingWallet.setBeneficiaries([], [])
     ).wait(networkConfig.confirmations);
   }
 

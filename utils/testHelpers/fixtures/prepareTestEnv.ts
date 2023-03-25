@@ -121,6 +121,9 @@ export const prepareFullTestEnv = async () => {
     locker.address,
   );
 
+  const VestingWalletFactory = await ethers.getContractFactory('StepVestingWallet');
+  const vestingWallet = await VestingWalletFactory.deploy(micToken.address);
+
   return {
     micToken,
     micTokenPermit,
@@ -132,5 +135,6 @@ export const prepareFullTestEnv = async () => {
     oracle,
     periodStarter,
     liquidator,
+    vestingWallet,
   };
 };
