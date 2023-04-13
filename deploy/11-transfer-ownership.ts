@@ -47,4 +47,4 @@ const transferOwnershipToTimelock: DeployFunction = async function ({
 
 export default transferOwnershipToTimelock;
 
-transferOwnershipToTimelock.tags = ['transferOwnership'];
+transferOwnershipToTimelock.tags = ['staking', 'transferOwnership'];

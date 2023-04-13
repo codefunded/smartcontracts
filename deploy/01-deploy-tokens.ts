@@ -54,4 +54,4 @@ const deployTokens: DeployFunction = async function ({
 
 export default deployTokens;
 
-deployTokens.tags = ['tokens'];
+deployTokens.tags = ['staking', 'tokens'];

@@ -66,4 +66,4 @@ const deployERC20Locker: DeployFunction = async function ({
 
 export default deployERC20Locker;
 
-deployERC20Locker.tags = ['locker'];
+deployERC20Locker.tags = ['staking', 'locker'];

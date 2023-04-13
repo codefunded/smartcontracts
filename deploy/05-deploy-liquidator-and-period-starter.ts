@@ -63,4 +63,4 @@ const deployLiquidatorAndPeriodStarter: DeployFunction = async function ({
 
 export default deployLiquidatorAndPeriodStarter;
 
-deployLiquidatorAndPeriodStarter.tags = ['liquidator', 'periodStarter'];
+deployLiquidatorAndPeriodStarter.tags = ['staking', 'liquidator', 'periodStarter'];

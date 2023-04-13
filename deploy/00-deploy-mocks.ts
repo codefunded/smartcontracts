@@ -36,4 +36,4 @@ const deployMocks: DeployFunction = async function ({
 
 export default deployMocks;
 
-deployMocks.tags = ['mocks'];
+deployMocks.tags = ['staking', 'mocks'];

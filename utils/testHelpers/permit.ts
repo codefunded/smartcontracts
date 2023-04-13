@@ -1,7 +1,7 @@
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { BigNumberish, constants, Signature } from 'ethers';
 import { splitSignature } from 'ethers/lib/utils';
-import { ERC20Permit } from '../../typechain-types/@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol';
+import { ERC20Permit } from '../../typechain-types';
 
 export async function getPermitSignature(
   wallet: SignerWithAddress,

@@ -29,4 +29,4 @@ const deployTimelock: DeployFunction = async function ({
 
 export default deployTimelock;
 
-deployTimelock.tags = ['timelock'];
+deployTimelock.tags = ['staking', 'timelock'];

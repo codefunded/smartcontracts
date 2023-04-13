@@ -75,4 +75,4 @@ const deployDAO: DeployFunction = async function ({
 
 export default deployDAO;
 
-deployDAO.tags = ['dao'];
+deployDAO.tags = ['staking', 'dao'];
